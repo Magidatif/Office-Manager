@@ -1,0 +1,32 @@
+name = "daily-office-manager"
+main = "worker/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Serve the compiled Single Page Application (SPA) frontend
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# Cloudflare D1 Database Binding
+[[d1_databases]]
+binding = "DB"
+database_name = "daily-office-db"
+database_id = "local-d1-id" # Updated during wrangler d1 create
+migrations_dir = "./migrations"
+
+# Cloudflare R2 Bucket Binding (for attachments & documents)
+[[r2_buckets]]
+binding = "ATTACHMENTS_BUCKET"
+bucket_name = "daily-office-attachments"
+
+# Cloudflare Scheduled Cron Triggers (Every day at 08:00 AM Africa/Cairo = 06:00 UTC)
+[triggers]
+crons = ["0 6 * * *"]
+
+# Environment Variables
+[vars]
+JWT_SECRET = "daily-office-manager-secure-jwt-secret-key-2025"
+DEFAULT_TIMEZONE = "Africa/Cairo"
+
