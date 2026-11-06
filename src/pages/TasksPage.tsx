@@ -40,6 +40,9 @@ export const TasksPage: React.FC = () => {
   const [selectedDept, setSelectedDept] = useState('');
   const [selectedPriority, setSelectedPriority] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  // Sorting state
+  const [sortBy, setSortBy] = useState(''); // e.g., 'priority', 'due_date', 'created_at', 'title'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
 
   // Modals & Selected Task
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -99,7 +102,12 @@ export const TasksPage: React.FC = () => {
       if (selectedPriority && activeTab !== 'urgent') params.append('priority', selectedPriority);
       if (selectedStatus && activeTab !== 'completed') params.append('status', selectedStatus);
 
-      const res = await apiRequest<{ success: boolean; tasks: Task[] }>(`/tasks?${params.toString()}`);
+      // Append sorting parameters if set
+    if (sortBy) {
+      params.append('sort_by', sortBy);
+      params.append('order', sortOrder);
+    }
+    const res = await apiRequest<{ success: boolean; tasks: Task[] }>(`/tasks?${params.toString()}`);
       if (res.success) {
         setTasks(res.tasks);
       }
@@ -134,7 +142,7 @@ export const TasksPage: React.FC = () => {
 
   useEffect(() => {
     loadTasks();
-  }, [activeTab, selectedDept, selectedPriority, selectedStatus]);
+  }, [activeTab, selectedDept, selectedPriority, selectedStatus, sortBy, sortOrder]);
 
   const openTaskDetails = async (taskId: string) => {
     try {
@@ -395,21 +403,27 @@ export const TasksPage: React.FC = () => {
           </select>
         )}
 
-        {/* Status Filter */}
-        {activeTab !== 'completed' && (
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-          >
-            <option value="">جميع الحالات</option>
-            <option value="new">جديدة</option>
-            <option value="in_progress">قيد التنفيذ</option>
-            <option value="waiting_reply">في انتظار رد</option>
-            <option value="waiting_approval">في انتظار اعتماد</option>
-            <option value="suspended">معلقة</option>
-          </select>
-        )}
+        {/* Sort By Filter */}
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+        >
+          <option value="">الترتيب حسب (افتراضي)</option>
+          <option value="priority">الأولوية</option>
+          <option value="due_date">الموعد النهائي</option>
+          <option value="created_at">تاريخ الإنشاء</option>
+          <option value="title">العنوان</option>
+        </select>
+        {/* Order Toggle */}
+        <select
+          value={sortOrder}
+          onChange={(e) => setSortOrder(e.target.value)}
+          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+        >
+          <option value="asc">تصاعدي</option>
+          <option value="desc">تنازلي</option>
+        </select>
 
         <button
           onClick={loadTasks}

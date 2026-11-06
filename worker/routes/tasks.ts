@@ -36,6 +36,48 @@ taskRoutes.get('/', async (c) => {
       LEFT JOIN departments d ON t.department_id = d.id
       WHERE t.deleted_at IS NULL
     `;
+    // Extract sorting parameters
+    const { sort_by, order } = c.req.query();
+    // Determine ORDER BY clause based on allowed fields
+    let orderClause = '';
+    if (sort_by) {
+      const direction = order && order.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+      switch (sort_by) {
+        case 'priority':
+          orderClause = `
+            CASE
+              WHEN t.priority = 'urgent_critical' THEN 1
+              WHEN t.priority = 'high' THEN 2
+              WHEN t.priority = 'medium' THEN 3
+              ELSE 4
+            END ${direction}`;
+          break;
+        case 'due_date':
+          orderClause = `t.due_date ${direction}`;
+          break;
+        case 'created_at':
+          orderClause = `t.created_at ${direction}`;
+          break;
+        case 'title':
+          orderClause = `t.title ${direction}`;
+          break;
+        default:
+          orderClause = `t.created_at ${direction}`;
+      }
+    } else {
+      // Default ordering: priority then due date then created_at desc
+      orderClause = `
+        CASE
+          WHEN t.priority = 'urgent_critical' THEN 1
+          WHEN t.priority = 'high' THEN 2
+          WHEN t.priority = 'medium' THEN 3
+          ELSE 4
+        END,
+        t.due_date ASC,
+        t.created_at DESC`;
+    }
+    // Append ORDER BY clause
+    query += ` ORDER BY ${orderClause}`;
     const params: any[] = [todayStr];
 
     if (is_archived !== undefined && is_archived !== '') {
