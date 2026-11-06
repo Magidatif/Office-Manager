@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { apiRequest } from '../api/client';
 import { Attachment, Department } from '../types';
 import { Modal } from '../components/common/Modal';
+import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { EmptyState } from '../components/common/EmptyState';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { toast } from '../context/ToastContext';
 import {
   FileText,
   Upload,
@@ -13,10 +15,6 @@ import {
   FileCode,
   FileSpreadsheet,
   FileCheck,
-  Tag,
-  Building,
-  Calendar,
-  Sparkles,
 } from 'lucide-react';
 
 export const ArchivePage: React.FC = () => {
@@ -39,6 +37,7 @@ export const ArchivePage: React.FC = () => {
   const [docKeywords, setDocKeywords] = useState('');
   const [docDescription, setDocDescription] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const loadDocuments = async () => {
     try {
@@ -82,7 +81,7 @@ export const ArchivePage: React.FC = () => {
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadFile) {
-      alert('يرجى اختيار ملف لرفعه');
+      toast.error('يرجى اختيار ملف لرفعه');
       return;
     }
 
@@ -102,6 +101,7 @@ export const ArchivePage: React.FC = () => {
       });
 
       if (res.success) {
+        toast.success('تم رفع المستند وحفظه في الأرشيف بنجاح');
         setShowUploadModal(false);
         setUploadFile(null);
         setDocTitle('');
@@ -110,20 +110,27 @@ export const ArchivePage: React.FC = () => {
         loadDocuments();
       }
     } catch (err: any) {
-      alert(err.message || 'فشل رفع المستند');
+      toast.error(err.message || 'فشل رفع المستند');
     } finally {
       setUploading(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('هل تريد حذف هذا المستند نهائياً من الأرشيف؟')) return;
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
     try {
-      await apiRequest(`/archive/${id}`, { method: 'DELETE' });
+      await apiRequest(`/archive/${deleteTargetId}`, { method: 'DELETE' });
+      toast.success('تم حذف المستند من الأرشيف');
+      setDeleteTargetId(null);
       loadDocuments();
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message || 'فشل الحذف');
     }
+  };
+
+  const getDownloadUrl = (id: string) => {
+    const token = localStorage.getItem('dom_token') || '';
+    return `/api/archive/download/${id}?token=${encodeURIComponent(token)}`;
   };
 
   const getFileIcon = (mime: string, name: string) => {
@@ -155,7 +162,7 @@ export const ArchivePage: React.FC = () => {
           <h2 className="text-xl font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
             بنك المستندات والأرشيف الإلكتروني
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 font-bold border border-amber-200">
-              تخزين Cloudflare R2 السحابي
+              تخزين Cloudflare R2 السحابي ({documents.length})
             </span>
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -171,6 +178,35 @@ export const ArchivePage: React.FC = () => {
           إيداع مستند جديد
         </button>
       </div>
+
+      {/* Category Quick Chips */}
+      {categories.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setSelectedCategory('')}
+            className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all ${
+              selectedCategory === ''
+                ? 'bg-amber-600 text-white border-amber-600'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            الكل ({documents.length})
+          </button>
+          {categories.map((cat, idx) => (
+            <button
+              key={idx}
+              onClick={() => setSelectedCategory(cat.category)}
+              className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all ${
+                selectedCategory === cat.category
+                  ? 'bg-amber-600 text-white border-amber-600'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-amber-400'
+              }`}
+            >
+              {cat.category} ({cat.count})
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="flex flex-wrap items-center gap-3 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
@@ -222,7 +258,7 @@ export const ArchivePage: React.FC = () => {
         </button>
       </div>
 
-      {/* Documents Grid / Table */}
+      {/* Documents Grid */}
       {loading ? (
         <LoadingSpinner text="جاري استرجاع وثائق الأرشيف..." />
       ) : documents.length > 0 ? (
@@ -244,7 +280,7 @@ export const ArchivePage: React.FC = () => {
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shrink-0">
                     {getFileIcon(doc.mime_type, doc.file_name)}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-amber-600 transition-colors line-clamp-1">
                       {doc.title}
                     </h3>
@@ -276,18 +312,18 @@ export const ArchivePage: React.FC = () => {
 
                 <div className="flex items-center gap-1">
                   <a
-                    href={`/api/archive/download/${doc.id}`}
+                    href={getDownloadUrl(doc.id)}
                     target="_blank"
                     rel="noreferrer"
-                    className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1"
+                    className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors flex items-center gap-1"
                     title="تنزيل الملف"
                   >
                     <Download className="w-4 h-4" />
                   </a>
 
                   <button
-                    onClick={() => handleDelete(doc.id)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    onClick={() => setDeleteTargetId(doc.id)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors"
                     title="حذف"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -424,12 +460,21 @@ export const ArchivePage: React.FC = () => {
               disabled={uploading}
               className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-md transition-colors"
             >
-              {uploading ? 'جاري الرفع إلى R2...' : 'حفظ وإيداع بالأرشيف'}
+              {uploading ? 'جاري الرفع...' : 'حفظ وإيداع بالأرشيف'}
             </button>
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={!!deleteTargetId}
+        onClose={() => setDeleteTargetId(null)}
+        onConfirm={confirmDelete}
+        title="تأكيد حذف المستند"
+        message="هل تريد حذف هذا المستند نهائياً من الأرشيف؟"
+        confirmText="نعم، احذف المستند"
+        isDestructive={true}
+      />
     </div>
   );
 };
-

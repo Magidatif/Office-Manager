@@ -260,10 +260,32 @@ meetingRoutes.post('/decisions/:decisionId/convert-to-task', async (c) => {
   }
 });
 
+// PUT /api/meetings/decisions/:decisionId/status
+meetingRoutes.put('/decisions/:decisionId/status', async (c) => {
+  try {
+    const db = c.env.DB;
+    const user = c.get('user');
+    const decisionId = c.req.param('decisionId');
+    const { status } = await c.req.json();
+
+    await db
+      .prepare('UPDATE meeting_decisions SET status = ? WHERE id = ?')
+      .bind(status || 'completed', decisionId)
+      .run();
+
+    await logAudit(db, user.userId, user.username, 'UPDATE_DECISION_STATUS', 'meeting_decision', decisionId, `تحديث حالة القرار إلى: ${status}`);
+
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
 // PUT /api/meetings/:id
 meetingRoutes.put('/:id', async (c) => {
   try {
     const db = c.env.DB;
+    const user = c.get('user');
     const id = c.req.param('id');
     const body = await c.req.json();
 
@@ -282,17 +304,80 @@ meetingRoutes.put('/:id', async (c) => {
         WHERE id = ?`
       )
       .bind(
-        body.title,
-        body.meeting_date,
-        body.meeting_time,
-        body.location,
-        body.chairman,
-        body.attendees,
-        body.agenda,
-        body.summary_of_discussions,
+        body.title ?? null,
+        body.meeting_date ?? null,
+        body.meeting_time ?? null,
+        body.location ?? null,
+        body.chairman ?? null,
+        body.attendees ?? null,
+        body.agenda ?? null,
+        body.summary_of_discussions ?? null,
         id
       )
       .run();
+
+    if (Array.isArray(body.decisions)) {
+      const existingRows = (
+        await db.prepare('SELECT id FROM meeting_decisions WHERE meeting_id = ?').bind(id).all()
+      ).results as { id: string }[];
+      const existingIds = new Set(existingRows.map((r) => r.id));
+      const keptIds = new Set<string>();
+
+      for (const dec of body.decisions) {
+        if (dec.content && dec.content.trim()) {
+          if (dec.id && existingIds.has(dec.id)) {
+            keptIds.add(dec.id);
+            await db
+              .prepare(
+                `UPDATE meeting_decisions SET
+                  item_type = ?,
+                  content = ?,
+                  assigned_to_dept = ?,
+                  assigned_to_person = ?,
+                  due_date = ?
+                WHERE id = ? AND meeting_id = ?`
+              )
+              .bind(
+                dec.item_type || 'توصية',
+                dec.content.trim(),
+                dec.assigned_to_dept || null,
+                dec.assigned_to_person || null,
+                dec.due_date || null,
+                dec.id,
+                id
+              )
+              .run();
+          } else {
+            const decId = generateId('dec');
+            await db
+              .prepare(
+                `INSERT INTO meeting_decisions (
+                  id, meeting_id, item_type, content, assigned_to_dept, assigned_to_person, due_date, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'))`
+              )
+              .bind(
+                decId,
+                id,
+                dec.item_type || 'توصية',
+                dec.content.trim(),
+                dec.assigned_to_dept || null,
+                dec.assigned_to_person || null,
+                dec.due_date || null,
+                dec.status || 'pending'
+              )
+              .run();
+          }
+        }
+      }
+
+      for (const oldId of existingIds) {
+        if (!keptIds.has(oldId)) {
+          await db.prepare('DELETE FROM meeting_decisions WHERE id = ?').bind(oldId).run();
+        }
+      }
+    }
+
+    await logAudit(db, user.userId, user.username, 'UPDATE_MEETING', 'meeting', id, `تعديل اجتماع: ${body.title || id}`);
 
     return c.json({ success: true, message: 'تم تحديث الاجتماع' });
   } catch (err: any) {
@@ -305,6 +390,8 @@ meetingRoutes.delete('/:id', async (c) => {
   try {
     const db = c.env.DB;
     const id = c.req.param('id');
+    await db.prepare('DELETE FROM meeting_decisions WHERE meeting_id = ?').bind(id).run();
+    await db.prepare("DELETE FROM attachments WHERE reference_type = 'meeting' AND reference_id = ?").bind(id).run();
     await db.prepare('DELETE FROM meetings WHERE id = ?').bind(id).run();
     return c.json({ success: true });
   } catch (err: any) {

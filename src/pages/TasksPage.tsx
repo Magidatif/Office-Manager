@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../api/client';
-import { Task, Department, Subtask } from '../types';
+import { Task, Department, Subtask, User } from '../types';
+import { useAuth } from '../context/AuthContext';
 import { StatusBadge, PriorityBadge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { EmptyState } from '../components/common/EmptyState';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { EntityAttachments } from '../components/common/EntityAttachments';
+import { toast } from '../context/ToastContext';
 import {
   Plus,
   Search,
@@ -26,18 +29,22 @@ import {
   CheckSquare,
   ListTodo,
   Sparkles,
+  UserCheck,
 } from 'lucide-react';
 
 export const TasksPage: React.FC = () => {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [teamUsers, setTeamUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
-  const [activeTab, setActiveTab] = useState<'all' | 'today' | 'overdue' | 'urgent' | 'completed' | 'archived'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'mine' | 'today' | 'overdue' | 'urgent' | 'completed' | 'archived'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('');
+  const [selectedAssignee, setSelectedAssignee] = useState('');
   const [selectedPriority, setSelectedPriority] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   // Sorting state
@@ -78,11 +85,36 @@ export const TasksPage: React.FC = () => {
 
   const loadDepartments = async () => {
     try {
-      const res = await apiRequest<{ success: boolean; departments: Department[] }>('/departments');
-      if (res.success) setDepartments(res.departments);
+      const [deptRes, usrRes] = await Promise.all([
+        apiRequest<{ success: boolean; departments: Department[] }>('/departments'),
+        apiRequest<{ success: boolean; users: User[] }>('/settings/users').catch(() => ({ success: false, users: [] })),
+      ]);
+      if (deptRes.success) setDepartments(deptRes.departments);
+      if (usrRes.success && usrRes.users) setTeamUsers(usrRes.users);
     } catch (e) {
       console.error(e);
     }
+  };
+
+  // Open edit modal with selected task data
+  const openEditModal = (task: Task) => {
+    setFormData({
+      id: task.id,
+      title: task.title,
+      description: task.description || '',
+      task_type: task.task_type || 'تكليف إداري',
+      department_id: task.department_id || '',
+      assigned_by: task.assigned_by || 'مدير الفرع',
+      assigned_to: task.assigned_to || '',
+      priority: task.priority || 'medium',
+      status: task.status || 'new',
+      start_date: task.start_date?.split('T')[0] ?? new Date().toISOString().split('T')[0],
+      due_date: task.due_date?.split('T')[0] ?? '',
+      progress: task.progress ?? 0,
+      reference_number: task.reference_number || '',
+      notes: task.notes || '',
+    });
+    setShowCreateModal(true);
   };
 
   const loadTasks = async () => {
@@ -90,6 +122,7 @@ export const TasksPage: React.FC = () => {
       setLoading(true);
       const params = new URLSearchParams();
 
+      if (activeTab === 'mine' && user?.full_name) params.append('assigned_to', user.full_name);
       if (activeTab === 'today') params.append('today', '1');
       if (activeTab === 'overdue') params.append('overdue', '1');
       if (activeTab === 'urgent') params.append('priority', 'urgent_critical');
@@ -99,15 +132,16 @@ export const TasksPage: React.FC = () => {
 
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
       if (selectedDept) params.append('department_id', selectedDept);
+      if (selectedAssignee && activeTab !== 'mine') params.append('assigned_to', selectedAssignee);
       if (selectedPriority && activeTab !== 'urgent') params.append('priority', selectedPriority);
       if (selectedStatus && activeTab !== 'completed') params.append('status', selectedStatus);
 
       // Append sorting parameters if set
-    if (sortBy) {
-      params.append('sort_by', sortBy);
-      params.append('order', sortOrder);
-    }
-    const res = await apiRequest<{ success: boolean; tasks: Task[] }>(`/tasks?${params.toString()}`);
+      if (sortBy) {
+        params.append('sort_by', sortBy);
+        params.append('order', sortOrder);
+      }
+      const res = await apiRequest<{ success: boolean; tasks: Task[] }>(`/tasks?${params.toString()}`);
       if (res.success) {
         setTasks(res.tasks);
       }
@@ -120,6 +154,9 @@ export const TasksPage: React.FC = () => {
 
   useEffect(() => {
     loadDepartments();
+    const handleRefresh = () => loadTasks();
+    window.addEventListener('dom-refresh', handleRefresh);
+    return () => window.removeEventListener('dom-refresh', handleRefresh);
   }, []);
 
   useEffect(() => {
@@ -142,7 +179,7 @@ export const TasksPage: React.FC = () => {
 
   useEffect(() => {
     loadTasks();
-  }, [activeTab, selectedDept, selectedPriority, selectedStatus, sortBy, sortOrder]);
+  }, [activeTab, selectedDept, selectedAssignee, selectedPriority, selectedStatus, sortBy, sortOrder]);
 
   const openTaskDetails = async (taskId: string) => {
     try {
@@ -165,17 +202,19 @@ export const TasksPage: React.FC = () => {
           method: 'PUT',
           body: JSON.stringify(formData),
         });
+        toast.success('تم تحديث بيانات المهمة بنجاح');
       } else {
         await apiRequest('/tasks', {
           method: 'POST',
           body: JSON.stringify(formData),
         });
+        toast.success('تم إضافة المهمة الجديدة بنجاح');
       }
       setShowCreateModal(false);
       loadTasks();
       if (formData.id) openTaskDetails(formData.id);
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ');
+      toast.error(err.message || 'حدث خطأ');
     }
   };
 
@@ -185,10 +224,11 @@ export const TasksPage: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ status: newStatus, progress }),
       });
+      toast.success('تم تحديث حالة المهمة');
       loadTasks();
       if (selectedTask?.id === taskId) openTaskDetails(taskId);
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -199,7 +239,7 @@ export const TasksPage: React.FC = () => {
       openTaskDetails(selectedTask.id);
       loadTasks();
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -215,7 +255,7 @@ export const TasksPage: React.FC = () => {
       openTaskDetails(selectedTask.id);
       loadTasks();
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -228,9 +268,10 @@ export const TasksPage: React.FC = () => {
         body: JSON.stringify({ comment: newComment.trim() }),
       });
       setNewComment('');
+      toast.success('تم تسجيل ملاحظة المتابعة');
       openTaskDetails(selectedTask.id);
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -244,13 +285,14 @@ export const TasksPage: React.FC = () => {
           postpone_reason: postponeReason.trim() || 'تأجيل إداري',
         }),
       });
+      toast.success('تم اعتماد تأجيل الموعد النهائي');
       setShowPostponeModal(false);
       setNewDueDate('');
       setPostponeReason('');
       openTaskDetails(selectedTask.id);
       loadTasks();
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -260,11 +302,12 @@ export const TasksPage: React.FC = () => {
         method: 'POST',
       });
       if (res.success) {
+        toast.success('تم تكرار المهمة بنجاح');
         loadTasks();
         openTaskDetails(res.newTaskId);
       }
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -274,10 +317,11 @@ export const TasksPage: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ archive }),
       });
+      toast.success(archive ? 'تم نقل المهمة للأرشيف' : 'تم استعادة المهمة من الأرشيف');
       setSelectedTask(null);
       loadTasks();
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -285,10 +329,11 @@ export const TasksPage: React.FC = () => {
     if (!selectedTask) return;
     try {
       await apiRequest(`/tasks/${selectedTask.id}`, { method: 'DELETE' });
+      toast.success('تم حذف المهمة');
       setSelectedTask(null);
       loadTasks();
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -313,7 +358,7 @@ export const TasksPage: React.FC = () => {
               task_type: 'تكليف إداري',
               department_id: '',
               assigned_by: 'مدير الفرع',
-              assigned_to: 'د. ماجد عاطف',
+              assigned_to: user?.full_name || 'د. ماجد عاطف',
               priority: 'medium',
               status: 'new',
               start_date: new Date().toISOString().split('T')[0],
@@ -335,6 +380,7 @@ export const TasksPage: React.FC = () => {
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px">
         {[
           { key: 'all', label: 'جميع المهام', icon: ListTodo },
+          { key: 'mine', label: 'مهامي الشخصية', icon: UserCheck },
           { key: 'today', label: 'مهام اليوم', icon: Calendar },
           { key: 'overdue', label: 'المهام المتأخرة', icon: AlertTriangle, countColor: 'text-red-600' },
           { key: 'urgent', label: 'عاجل جداً', icon: Flame, countColor: 'text-rose-600' },
@@ -387,6 +433,22 @@ export const TasksPage: React.FC = () => {
             </option>
           ))}
         </select>
+
+        {/* Assignee / Team Member Filter */}
+        {activeTab !== 'mine' && teamUsers.length > 0 && (
+          <select
+            value={selectedAssignee}
+            onChange={(e) => setSelectedAssignee(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+          >
+            <option value="">جميع أعضاء المكتب الفني</option>
+            {teamUsers.map((u) => (
+              <option key={u.id} value={u.full_name}>
+                {u.full_name}
+              </option>
+            ))}
+          </select>
+        )}
 
         {/* Priority Filter */}
         {activeTab !== 'urgent' && (
@@ -539,6 +601,13 @@ export const TasksPage: React.FC = () => {
                           </button>
                         )}
 
+                        <button
+                          title="تحرير المهمة"
+                          onClick={(e) => { e.stopPropagation(); openEditModal(task); }}
+                          className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
                         <button
                           title="نسخ المهمة"
                           onClick={() => handleDuplicate(task.id)}
@@ -778,6 +847,15 @@ export const TasksPage: React.FC = () => {
                 </button>
               </form>
             </div>
+
+            {/* Attachments Section */}
+            <EntityAttachments
+              referenceType="task"
+              referenceId={selectedTask.id}
+              departmentId={selectedTask.department_id}
+              attachments={selectedTask.attachments || []}
+              onRefresh={() => openTaskDetails(selectedTask.id)}
+            />
           </div>
         </Modal>
       )}
@@ -886,14 +964,23 @@ export const TasksPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                المسؤول عن التنفيذ
+                المسؤول عن التنفيذ (عضو المكتب الفني)
               </label>
               <input
                 type="text"
+                list="team-users-datalist"
                 value={formData.assigned_to}
                 onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
+                placeholder="اختر عضو المكتب الفني أو اكتب الاسم..."
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               />
+              <datalist id="team-users-datalist">
+                {teamUsers.map((u) => (
+                  <option key={u.id} value={u.full_name}>
+                    {u.job_title}
+                  </option>
+                ))}
+              </datalist>
             </div>
 
             <div>

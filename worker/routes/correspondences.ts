@@ -308,6 +308,7 @@ correspondenceRoutes.delete('/:id', async (c) => {
   try {
     const db = c.env.DB;
     const id = c.req.param('id');
+    await db.prepare("DELETE FROM attachments WHERE reference_type = 'correspondence' AND reference_id = ?").bind(id).run();
     await db.prepare('DELETE FROM correspondences WHERE id = ?').bind(id).run();
     return c.json({ success: true });
   } catch (err: any) {

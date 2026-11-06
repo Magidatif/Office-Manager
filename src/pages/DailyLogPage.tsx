@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { apiRequest } from '../api/client';
 import { DailyWorkLog, Department } from '../types';
 import { Modal } from '../components/common/Modal';
+import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { EmptyState } from '../components/common/EmptyState';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { toast } from '../context/ToastContext';
 import {
   Calendar,
   Clock,
@@ -32,6 +34,7 @@ export const DailyLogPage: React.FC = () => {
   const [showReportModal, setShowReportModal] = useState(false);
   const [endOfDayReport, setEndOfDayReport] = useState<any>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState<any>({
@@ -76,6 +79,9 @@ export const DailyLogPage: React.FC = () => {
 
   useEffect(() => {
     loadDepartments();
+    const handleRefresh = () => loadLogs();
+    window.addEventListener('dom-refresh', handleRefresh);
+    return () => window.removeEventListener('dom-refresh', handleRefresh);
   }, []);
 
   useEffect(() => {
@@ -92,26 +98,30 @@ export const DailyLogPage: React.FC = () => {
           method: 'PUT',
           body: JSON.stringify(formData),
         });
+        toast.success('تم تحديث النشاط في سجل اليوم');
       } else {
         await apiRequest('/daily-logs', {
           method: 'POST',
           body: JSON.stringify({ ...formData, log_date: selectedDate }),
         });
+        toast.success('تم تسجيل النشاط بنجاح');
       }
       setShowAddModal(false);
       loadLogs();
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء الحفظ');
+      toast.error(err.message || 'حدث خطأ أثناء الحفظ');
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('هل تريد حذف هذا السجل؟')) return;
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
     try {
-      await apiRequest(`/daily-logs/${id}`, { method: 'DELETE' });
+      await apiRequest(`/daily-logs/${deleteTargetId}`, { method: 'DELETE' });
+      toast.success('تم حذف النشاط من السجل');
+      setDeleteTargetId(null);
       loadLogs();
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -124,7 +134,7 @@ export const DailyLogPage: React.FC = () => {
         setEndOfDayReport(res);
       }
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     } finally {
       setReportLoading(false);
     }
@@ -234,7 +244,7 @@ export const DailyLogPage: React.FC = () => {
                       <Edit className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => handleDelete(log.id)}
+                      onClick={() => setDeleteTargetId(log.id)}
                       className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50"
                       title="حذف"
                     >
@@ -570,6 +580,16 @@ export const DailyLogPage: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={!!deleteTargetId}
+        onClose={() => setDeleteTargetId(null)}
+        onConfirm={confirmDelete}
+        title="تأكيد حذف النشاط"
+        message="هل تريد حذف هذا السجل من أعمال اليوم؟"
+        confirmText="نعم، احذف السجل"
+        isDestructive={true}
+      />
     </div>
   );
 };

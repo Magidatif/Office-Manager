@@ -1,12 +1,55 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
 import { createLocalD1Database } from './worker/local-d1.mjs';
+
+function createLocalR2Bucket(storageDir: string) {
+  if (!fs.existsSync(storageDir)) {
+    fs.mkdirSync(storageDir, { recursive: true });
+  }
+  return {
+    async put(key: string, value: ArrayBuffer | Buffer | string, options?: any) {
+      const safeKey = key.replace(/\//g, '_');
+      const filePath = path.join(storageDir, safeKey);
+      const metaPath = `${filePath}.meta.json`;
+      const buf = value instanceof ArrayBuffer ? Buffer.from(value) : Buffer.isBuffer(value) ? value : Buffer.from(String(value));
+      fs.writeFileSync(filePath, buf);
+      fs.writeFileSync(metaPath, JSON.stringify(options || {}));
+      return { key };
+    },
+    async get(key: string) {
+      const safeKey = key.replace(/\//g, '_');
+      const filePath = path.join(storageDir, safeKey);
+      const metaPath = `${filePath}.meta.json`;
+      if (!fs.existsSync(filePath)) return null;
+      const buf = fs.readFileSync(filePath);
+      const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, 'utf8')) : {};
+      return {
+        body: buf,
+        httpEtag: `"${buf.length}"`,
+        writeHttpMetadata(headers: Headers) {
+          if (meta?.httpMetadata?.contentType) {
+            headers.set('Content-Type', meta.httpMetadata.contentType);
+          }
+        },
+      };
+    },
+    async delete(key: string) {
+      const safeKey = key.replace(/\//g, '_');
+      const filePath = path.join(storageDir, safeKey);
+      const metaPath = `${filePath}.meta.json`;
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+    },
+  };
+}
 
 // Custom Vite plugin to serve the Hono Cloudflare API directly in Vite dev!
 function cloudflareWorkerDevPlugin() {
   let appInstance: any = null;
   let localDbInstance: any = null;
+  let localR2Instance: any = null;
 
   return {
     name: 'cloudflare-worker-dev',
@@ -15,6 +58,7 @@ function cloudflareWorkerDevPlugin() {
       const dbPath = path.resolve(process.cwd(), '.local-d1.sqlite');
       const { d1 } = createLocalD1Database(dbPath);
       localDbInstance = d1;
+      localR2Instance = createLocalR2Bucket(path.resolve(process.cwd(), '.wrangler/local-r2'));
 
       // Import the compiled worker app
       const workerModule = await import('./worker/index');
@@ -53,6 +97,7 @@ function cloudflareWorkerDevPlugin() {
 
           const env = {
             DB: localDbInstance,
+            ATTACHMENTS_BUCKET: localR2Instance,
             JWT_SECRET: 'daily-office-manager-secure-jwt-secret-key-2025',
             DEFAULT_TIMEZONE: 'Africa/Cairo',
           };

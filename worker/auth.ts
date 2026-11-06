@@ -122,10 +122,15 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
     token = authHeader.substring(7).trim();
   } else {
     // Also check query param or cookie for convenience
-    const cookieHeader = c.req.header('Cookie');
-    if (cookieHeader) {
-      const match = cookieHeader.match(/auth_token=([^;]+)/);
-      if (match) token = match[1];
+    const queryToken = c.req.query('token');
+    if (queryToken) {
+      token = queryToken.trim();
+    } else {
+      const cookieHeader = c.req.header('Cookie');
+      if (cookieHeader) {
+        const match = cookieHeader.match(/auth_token=([^;]+)/);
+        if (match) token = match[1];
+      }
     }
   }
 

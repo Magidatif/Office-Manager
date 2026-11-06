@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Lock, User, ShieldCheck, ArrowLeft, Loader2 } from 'lucide-react';
+import { Building2, Lock, User, ArrowLeft, Loader2 } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123@office');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -28,11 +28,6 @@ export const LoginPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDefaultCredentials = () => {
-    setUsername('admin');
-    setPassword('admin123@office');
   };
 
   return (
@@ -114,18 +109,6 @@ export const LoginPage: React.FC = () => {
             )}
           </button>
         </form>
-
-        {/* Default Account Helper */}
-        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
-          <button
-            type="button"
-            onClick={fillDefaultCredentials}
-            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline inline-flex items-center gap-1"
-          >
-            <ShieldCheck className="w-4 h-4" />
-            استخدام الحساب الافتراضي للمكتب الفني (admin / admin123@office)
-          </button>
-        </div>
       </div>
     </div>
   );

@@ -54,6 +54,9 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     loadStats();
+    const handleRefresh = () => loadStats();
+    window.addEventListener('dom-refresh', handleRefresh);
+    return () => window.removeEventListener('dom-refresh', handleRefresh);
   }, []);
 
   if (loading) return <LoadingSpinner text="جاري تجهيز مؤشرات وإحصاءات العمل..." />;

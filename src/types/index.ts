@@ -15,7 +15,7 @@ export interface User {
   username: string;
   full_name: string;
   job_title: string;
-  role: 'admin' | 'officer' | 'viewer';
+  role: 'admin' | 'director' | 'officer' | 'viewer';
 }
 
 export interface Department {
@@ -81,6 +81,7 @@ export interface Task {
   is_overdue?: boolean;
   subtasks?: Subtask[];
   comments?: TaskComment[];
+  attachments?: Attachment[];
   created_at: string;
   updated_at: string;
 }

@@ -2,22 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { apiRequest } from '../api/client';
 import { Meeting, MeetingDecision } from '../types';
 import { Modal } from '../components/common/Modal';
+import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { EmptyState } from '../components/common/EmptyState';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { EntityAttachments } from '../components/common/EntityAttachments';
+import { StatusBadge } from '../components/common/Badge';
+import { toast } from '../context/ToastContext';
 import {
   Calendar,
   Plus,
-  Users,
   MapPin,
   Clock,
   Sparkles,
   CheckCircle2,
-  ListOrdered,
   ArrowUpRight,
-  ChevronDown,
   Layers,
+  Trash2,
+  Edit,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 export const MeetingsPage: React.FC = () => {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -25,13 +28,16 @@ export const MeetingsPage: React.FC = () => {
   const [viewTab, setViewTab] = useState<'meetings' | 'recommendations'>('meetings');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState<any>({
+    id: undefined,
     title: '',
     meeting_date: new Date().toISOString().split('T')[0],
     meeting_time: '10:00',
@@ -62,10 +68,6 @@ export const MeetingsPage: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const openMeetingDetails = async (id: string) => {
     try {
       const res = await apiRequest<{ success: boolean; meeting: Meeting }>(`/meetings/${id}`);
@@ -77,19 +79,80 @@ export const MeetingsPage: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    loadData();
+    const handleRefresh = () => loadData();
+    window.addEventListener('dom-refresh', handleRefresh);
+    return () => window.removeEventListener('dom-refresh', handleRefresh);
+  }, []);
+
+  useEffect(() => {
+    const meetId = searchParams.get('meetId');
+    const dateParam = searchParams.get('date');
+    if (meetId) {
+      openMeetingDetails(meetId);
+    } else if (dateParam) {
+      setFormData((prev: any) => ({ ...prev, id: undefined, meeting_date: dateParam }));
+      setShowAddModal(true);
+    }
+  }, [searchParams]);
+
+  const openEditModal = async (meet: Meeting, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      const res = await apiRequest<{ success: boolean; meeting: Meeting }>(`/meetings/${meet.id}`);
+      const fullMeet = res.success ? res.meeting : meet;
+      setFormData({
+        id: fullMeet.id,
+        title: fullMeet.title || '',
+        meeting_date: fullMeet.meeting_date || new Date().toISOString().split('T')[0],
+        meeting_time: fullMeet.meeting_time || '10:00',
+        location: fullMeet.location || 'قاعة الاجتماعات الكبرى بالفرع',
+        chairman: fullMeet.chairman || 'مدير الفرع',
+        attendees: fullMeet.attendees || '',
+        agenda: fullMeet.agenda || '',
+        summary_of_discussions: fullMeet.summary_of_discussions || '',
+        decisions:
+          fullMeet.decisions && fullMeet.decisions.length > 0
+            ? fullMeet.decisions.map((d) => ({
+                id: d.id,
+                item_type: d.item_type || 'قرار',
+                content: d.content || '',
+                assigned_to_dept: d.assigned_to_dept || '',
+                due_date: d.due_date || '',
+                status: d.status,
+              }))
+            : [{ item_type: 'قرار', content: '', assigned_to_dept: '', due_date: '' }],
+      });
+      setSelectedMeeting(null);
+      setShowAddModal(true);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleCreateMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title.trim()) return;
 
     try {
-      await apiRequest('/meetings', {
-        method: 'POST',
-        body: JSON.stringify(formData),
-      });
+      if (formData.id) {
+        await apiRequest(`/meetings/${formData.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(formData),
+        });
+        toast.success('تم تحديث بيانات الاجتماع والقرارات بنجاح');
+      } else {
+        await apiRequest('/meetings', {
+          method: 'POST',
+          body: JSON.stringify(formData),
+        });
+        toast.success('تم توثيق الاجتماع بنجاح');
+      }
       setShowAddModal(false);
       loadData();
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ');
+      toast.error(err.message || 'حدث خطأ');
     }
   };
 
@@ -100,13 +163,41 @@ export const MeetingsPage: React.FC = () => {
         { method: 'POST' }
       );
       if (res.success) {
-        alert(`تم تحويل التوصية بنجاح إلى المهمة رقم: ${res.task_number}`);
+        toast.success(`تم تحويل التوصية بنجاح إلى المهمة رقم: ${res.task_number}`);
         loadData();
         if (selectedMeeting) openMeetingDetails(selectedMeeting.id);
         navigate(`/tasks?taskId=${res.taskId}`);
       }
     } catch (err: any) {
-      alert(err.message || 'فشل تحويل التوصية لمهمة');
+      toast.error(err.message || 'فشل تحويل التوصية لمهمة');
+    }
+  };
+
+  const handleToggleDecisionStatus = async (decisionId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'completed' ? 'pending' : 'completed';
+    try {
+      await apiRequest(`/meetings/decisions/${decisionId}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus }),
+      });
+      toast.success(newStatus === 'completed' ? 'تم تعليم القرار كمكتمل' : 'تم إعادة القرار لقيد التنفيذ');
+      loadData();
+      if (selectedMeeting) openMeetingDetails(selectedMeeting.id);
+    } catch (err: any) {
+      toast.error(err.message || 'فشل تحديث الحالة');
+    }
+  };
+
+  const confirmDeleteMeeting = async () => {
+    if (!deleteTargetId) return;
+    try {
+      await apiRequest(`/meetings/${deleteTargetId}`, { method: 'DELETE' });
+      toast.success('تم حذف الاجتماع بنجاح');
+      if (selectedMeeting?.id === deleteTargetId) setSelectedMeeting(null);
+      setDeleteTargetId(null);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || 'فشل حذف الاجتماع');
     }
   };
 
@@ -139,6 +230,7 @@ export const MeetingsPage: React.FC = () => {
         <button
           onClick={() => {
             setFormData({
+              id: undefined,
               title: '',
               meeting_date: new Date().toISOString().split('T')[0],
               meeting_time: '10:00',
@@ -223,7 +315,26 @@ export const MeetingsPage: React.FC = () => {
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     عرض المحضر والقرارات
                   </span>
-                  <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 transition-colors" />
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={(e) => openEditModal(meet, e)}
+                      title="تعديل الاجتماع"
+                      className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded-lg transition-colors"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTargetId(meet.id);
+                      }}
+                      title="حذف الاجتماع"
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 transition-colors" />
+                  </div>
                 </div>
               </div>
             ))}
@@ -249,7 +360,8 @@ export const MeetingsPage: React.FC = () => {
                     <th className="py-3 px-4 font-bold">الاجتماع المنبثق عنه</th>
                     <th className="py-3 px-4 font-bold">الجهة المكلفة</th>
                     <th className="py-3 px-4 font-bold">الموعد النهائي</th>
-                    <th className="py-3 px-4 font-bold text-center">المهمة التنفيذية</th>
+                    <th className="py-3 px-4 font-bold">الحالة</th>
+                    <th className="py-3 px-4 font-bold text-center">إجراءات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -270,24 +382,41 @@ export const MeetingsPage: React.FC = () => {
                       <td className="py-3.5 px-4 font-mono text-slate-500">
                         {rec.due_date || 'غير محدد'}
                       </td>
+                      <td className="py-3.5 px-4">
+                        <StatusBadge status={rec.status} />
+                      </td>
                       <td className="py-3.5 px-4 text-center">
-                        {!rec.linked_task_id ? (
+                        <div className="flex items-center justify-center gap-1.5">
                           <button
-                            onClick={() => handleConvertDecisionToTask(rec.id)}
-                            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg border border-emerald-200 text-[11px] transition-colors flex items-center gap-1 mx-auto"
+                            onClick={() => handleToggleDecisionStatus(rec.id, rec.status)}
+                            title={rec.status === 'completed' ? 'إعادة لقيد المتابعة' : 'تعليم كمكتمل'}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              rec.status === 'completed'
+                                ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40'
+                                : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
+                            }`}
                           >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            تحويل لمهمة
+                            <CheckCircle2 className="w-4 h-4" />
                           </button>
-                        ) : (
-                          <button
-                            onClick={() => navigate(`/tasks?taskId=${rec.linked_task_id}`)}
-                            className="px-2 py-1 text-slate-500 hover:text-emerald-600 font-bold text-[11px] flex items-center gap-1 mx-auto"
-                          >
-                            {(rec as any).linked_task_number || 'فتح المهمة'}
-                            <ArrowUpRight className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+
+                          {!rec.linked_task_id ? (
+                            <button
+                              onClick={() => handleConvertDecisionToTask(rec.id)}
+                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg border border-emerald-200 text-[11px] transition-colors flex items-center gap-1"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              تحويل لمهمة
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => navigate(`/tasks?taskId=${rec.linked_task_id}`)}
+                              className="px-2 py-1 text-slate-500 hover:text-emerald-600 font-bold text-[11px] flex items-center gap-1"
+                            >
+                              {(rec as any).linked_task_number || 'فتح المهمة'}
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -300,11 +429,11 @@ export const MeetingsPage: React.FC = () => {
         )
       )}
 
-      {/* Add Meeting Modal */}
+      {/* Add/Edit Meeting Modal */}
       <Modal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        title="توثيق اجتماع جديد وإدراج القرارات"
+        title={formData.id ? 'تعديل بيانات الاجتماع والقرارات' : 'توثيق اجتماع جديد وإدراج القرارات'}
         maxWidth="2xl"
       >
         <form onSubmit={handleCreateMeeting} className="space-y-4">
@@ -416,7 +545,7 @@ export const MeetingsPage: React.FC = () => {
             </div>
 
             {formData.decisions.map((dec: any, idx: number) => (
-              <div key={idx} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 space-y-2">
+              <div key={idx} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <select
                     value={dec.item_type}
@@ -425,7 +554,7 @@ export const MeetingsPage: React.FC = () => {
                       updated[idx].item_type = e.target.value;
                       setFormData({ ...formData, decisions: updated });
                     }}
-                    className="px-2.5 py-1.5 rounded-lg border text-xs"
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
                   >
                     <option value="قرار">قرار</option>
                     <option value="توصية">توصية</option>
@@ -441,7 +570,7 @@ export const MeetingsPage: React.FC = () => {
                       updated[idx].assigned_to_dept = e.target.value;
                       setFormData({ ...formData, decisions: updated });
                     }}
-                    className="px-2.5 py-1.5 rounded-lg border text-xs"
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
                   />
 
                   <input
@@ -452,21 +581,36 @@ export const MeetingsPage: React.FC = () => {
                       updated[idx].due_date = e.target.value;
                       setFormData({ ...formData, decisions: updated });
                     }}
-                    className="px-2.5 py-1.5 rounded-lg border text-xs"
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
                   />
                 </div>
 
-                <input
-                  type="text"
-                  placeholder="نص القرار أو التوصية..."
-                  value={dec.content}
-                  onChange={(e) => {
-                    const updated = [...formData.decisions];
-                    updated[idx].content = e.target.value;
-                    setFormData({ ...formData, decisions: updated });
-                  }}
-                  className="w-full px-2.5 py-1.5 rounded-lg border text-xs"
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="نص القرار أو التوصية..."
+                    value={dec.content}
+                    onChange={(e) => {
+                      const updated = [...formData.decisions];
+                      updated[idx].content = e.target.value;
+                      setFormData({ ...formData, decisions: updated });
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                  />
+                  {formData.decisions.length > 1 && (
+                    <button
+                      type="button"
+                      title="حذف هذا البند"
+                      onClick={() => {
+                        const updated = formData.decisions.filter((_: any, i: number) => i !== idx);
+                        setFormData({ ...formData, decisions: updated });
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -483,7 +627,7 @@ export const MeetingsPage: React.FC = () => {
               type="submit"
               className="px-5 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-md transition-colors"
             >
-              حفظ وتوثيق الاجتماع
+              {formData.id ? 'حفظ التعديلات' : 'حفظ وتوثيق الاجتماع'}
             </button>
           </div>
         </form>
@@ -548,7 +692,13 @@ export const MeetingsPage: React.FC = () => {
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-200 text-purple-900 ml-2">
                         {dec.item_type}
                       </span>
-                      <span className="font-bold text-slate-800 dark:text-slate-100">
+                      <span
+                        className={`font-bold ${
+                          dec.status === 'completed'
+                            ? 'line-through text-slate-400'
+                            : 'text-slate-800 dark:text-slate-100'
+                        }`}
+                      >
                         {dec.content}
                       </span>
                       <div className="text-[11px] text-slate-500 mt-0.5">
@@ -556,19 +706,36 @@ export const MeetingsPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleDecisionStatus(dec.id, dec.status)}
+                        className={`px-2 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 border transition-colors ${
+                          dec.status === 'completed'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-400'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        {dec.status === 'completed' ? 'مكتمل' : 'تم التنفيذ؟'}
+                      </button>
+
                       {!dec.linked_task_id ? (
                         <button
                           onClick={() => handleConvertDecisionToTask(dec.id)}
-                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs shrink-0"
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs"
                         >
                           <Sparkles className="w-3.5 h-3.5" />
                           تحويل لمهمة
                         </button>
                       ) : (
-                        <span className="text-[11px] font-bold text-emerald-600">
-                          تم تحويلها لمهمة ✓
-                        </span>
+                        <button
+                          onClick={() => navigate(`/tasks?taskId=${dec.linked_task_id}`)}
+                          className="text-[11px] font-bold text-emerald-600 hover:underline flex items-center gap-1"
+                        >
+                          المهمة المرتبطة
+                          <ArrowUpRight className="w-3.5 h-3.5" />
+                        </button>
                       )}
                     </div>
                   </div>
@@ -577,10 +744,55 @@ export const MeetingsPage: React.FC = () => {
                 <p className="text-xs text-slate-400">لا توجد قرارات مدونة</p>
               )}
             </div>
+
+            {/* Attachments */}
+            <EntityAttachments
+              referenceType="meeting"
+              referenceId={selectedMeeting.id}
+              attachments={(selectedMeeting as any).attachments || []}
+              onRefresh={() => openMeetingDetails(selectedMeeting.id)}
+            />
+
+            <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openEditModal(selectedMeeting)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30 rounded-xl transition-colors"
+                >
+                  <Edit className="w-4 h-4" />
+                  تعديل الاجتماع
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTargetId(selectedMeeting.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  حذف الاجتماع
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedMeeting(null)}
+                className="px-4 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              >
+                إغلاق
+              </button>
+            </div>
           </div>
         </Modal>
       )}
+
+      <ConfirmDialog
+        isOpen={!!deleteTargetId}
+        onClose={() => setDeleteTargetId(null)}
+        onConfirm={confirmDeleteMeeting}
+        title="تأكيد حذف الاجتماع"
+        message="هل أنت متأكد من حذف هذا الاجتماع وجميع قراراته المرتبطة به؟"
+        confirmText="نعم، احذف الاجتماع"
+        isDestructive={true}
+      />
     </div>
   );
 };
-

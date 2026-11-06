@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
 import { apiRequest } from '../../api/client';
+import { toast } from '../../context/ToastContext';
 import { CheckSquare, Award, Mail, Calendar, Sparkles } from 'lucide-react';
-import { Department } from '../../types';
+import { Department, User } from '../../types';
+import { useAuth } from '../../context/AuthContext';
 
 interface QuickAddModalProps {
   isOpen: boolean;
@@ -17,15 +19,18 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   onSuccess,
   defaultTab = 'task',
 }) => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'task' | 'achievement' | 'correspondence'>('task');
   const [loading, setLoading] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [teamUsers, setTeamUsers] = useState<User[]>([]);
 
   // Task fields
   const [taskTitle, setTaskTitle] = useState('');
   const [taskPriority, setTaskPriority] = useState('medium');
   const [taskDueDate, setTaskDueDate] = useState('');
   const [taskDeptId, setTaskDeptId] = useState('');
+  const [taskAssignedTo, setTaskAssignedTo] = useState('');
 
   // Achievement fields
   const [achieveDesc, setAchieveDesc] = useState('');
@@ -41,13 +46,19 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   useEffect(() => {
     setActiveTab(defaultTab);
     if (isOpen) {
+      setTaskAssignedTo(user?.full_name || '');
       apiRequest<{ success: boolean; departments: Department[] }>('/departments')
         .then((res) => {
           if (res.success) setDepartments(res.departments);
         })
         .catch(console.error);
+      apiRequest<{ success: boolean; users: User[] }>('/settings/users')
+        .then((res) => {
+          if (res.success && res.users) setTeamUsers(res.users);
+        })
+        .catch(() => {});
     }
-  }, [isOpen, defaultTab]);
+  }, [isOpen, defaultTab, user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,10 +74,12 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
             priority: taskPriority,
             due_date: taskDueDate || null,
             department_id: taskDeptId || null,
+            assigned_to: taskAssignedTo.trim() || user?.full_name || 'عضو المكتب الفني',
           }),
         });
         setTaskTitle('');
         setTaskDueDate('');
+        toast.success('تم إضافة المهمة بنجاح');
       } else if (activeTab === 'achievement') {
         if (!achieveDesc.trim()) return;
         await apiRequest('/daily-logs', {
@@ -80,6 +93,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         });
         setAchieveDesc('');
         setAchieveResults('');
+        toast.success('تم تسجيل الإنجاز في سجل أعمال اليوم');
       } else if (activeTab === 'correspondence') {
         if (!corrSubject.trim()) return;
         await apiRequest('/correspondences', {
@@ -94,12 +108,13 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         setCorrSubject('');
         setCorrSender('');
         setCorrOfficialNumber('');
+        toast.success('تم قيد المخاطبة بنجاح');
       }
 
       onClose();
       if (onSuccess) onSuccess();
     } catch (err: any) {
-      alert(err.message || 'فشلت العملية');
+      toast.error(err.message || 'فشلت العملية');
     } finally {
       setLoading(false);
     }
@@ -193,22 +208,45 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                الإدارة المعنية
-              </label>
-              <select
-                value={taskDeptId}
-                onChange={(e) => setTaskDeptId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-              >
-                <option value="">-- اختياري --</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  المسؤول عن التنفيذ (عضو المكتب الفني)
+                </label>
+                <input
+                  type="text"
+                  list="quick-team-users-list"
+                  value={taskAssignedTo}
+                  onChange={(e) => setTaskAssignedTo(e.target.value)}
+                  placeholder="اختر عضو المكتب الفني..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+                <datalist id="quick-team-users-list">
+                  {teamUsers.map((u) => (
+                    <option key={u.id} value={u.full_name}>
+                      {u.job_title}
+                    </option>
+                  ))}
+                </datalist>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  الإدارة المعنية
+                </label>
+                <select
+                  value={taskDeptId}
+                  onChange={(e) => setTaskDeptId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                >
+                  <option value="">-- اختياري --</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </>
         )}

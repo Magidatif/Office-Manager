@@ -76,8 +76,6 @@ taskRoutes.get('/', async (c) => {
         t.due_date ASC,
         t.created_at DESC`;
     }
-    // Append ORDER BY clause
-    query += ` ORDER BY ${orderClause}`;
     const params: any[] = [todayStr];
 
     if (is_archived !== undefined && is_archived !== '') {
@@ -122,17 +120,7 @@ taskRoutes.get('/', async (c) => {
       params.push(todayStr, todayStr, todayStr);
     }
 
-    query += ` ORDER BY
-      CASE
-        WHEN t.priority = 'urgent_critical' THEN 1
-        WHEN t.priority = 'high' THEN 2
-        WHEN t.priority = 'medium' THEN 3
-        ELSE 4
-      END,
-      t.due_date ASC,
-      t.created_at DESC
-      LIMIT ? OFFSET ?
-    `;
+    query += ` ORDER BY ${orderClause} LIMIT ? OFFSET ?`;
 
     const pageNum = Math.max(1, parseInt(page, 10));
     const limitNum = Math.min(100, Math.max(10, parseInt(limit, 10)));
@@ -554,11 +542,17 @@ taskRoutes.post('/:id/comments', async (c) => {
     }
 
     const commentId = generateId('cmnt');
+    const userRow = await db
+      .prepare('SELECT full_name FROM users WHERE id = ?')
+      .bind(user.userId)
+      .first<{ full_name: string }>();
+    const displayName = userRow?.full_name || user.username;
+
     await db
       .prepare(
         'INSERT INTO task_comments (id, task_id, user_id, user_name, comment, created_at) VALUES (?, ?, ?, ?, ?, DATETIME("now"))'
       )
-      .bind(commentId, taskId, user.userId, user.username, comment.trim())
+      .bind(commentId, taskId, user.userId, displayName, comment.trim())
       .run();
 
     return c.json({ success: true, commentId });

@@ -6,6 +6,7 @@ import { StatusBadge, PriorityBadge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
 import { EmptyState } from '../components/common/EmptyState';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { toast } from '../context/ToastContext';
 import {
   Clock,
   Calendar,
@@ -97,10 +98,11 @@ export const FollowUpCenterPage: React.FC = () => {
         method: 'POST',
         body: JSON.stringify(logForm),
       });
+      toast.success('تم حفظ إجراء المتابعة بنجاح');
       setShowLogModal(false);
       loadData();
     } catch (err: any) {
-      alert(err.message || 'فشل حفظ إجراء المتابعة');
+      toast.error(err.message || 'فشل حفظ إجراء المتابعة');
     }
   };
 

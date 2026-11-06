@@ -1,20 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { apiRequest } from '../../api/client';
 import {
   Search,
   Plus,
   Sun,
   Moon,
-  Globe,
   LogOut,
   Bell,
   Menu,
-  Shield,
-  User,
+  AlertTriangle,
+  Clock,
+  Info,
+  CheckCheck,
 } from 'lucide-react';
 import { QuickAddModal } from '../common/QuickAddModal';
 import { GlobalSearchModal } from '../common/GlobalSearchModal';
+import { useNavigate } from 'react-router-dom';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -23,13 +26,57 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme, language, toggleLanguage } = useTheme();
+  const navigate = useNavigate();
+
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showNotifMenu, setShowNotifMenu] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadNotifications = async () => {
+    try {
+      const res = await apiRequest<{ success: boolean; notifications: any[]; unreadCount: number }>(
+        '/settings/notifications'
+      );
+      if (res.success) {
+        setNotifications(res.notifications);
+        setUnreadCount(res.unreadCount);
+      }
+    } catch (e) {
+      // silent
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Global Ctrl+K / Cmd+K shortcut for search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowSearch((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleMarkAllRead = async () => {
+    try {
+      await apiRequest('/settings/notifications/mark-read', { method: 'POST' });
+      loadNotifications();
+    } catch (e) {}
+  };
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/95 shadow-xs transition-colors">
+      <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/95 shadow-xs transition-colors no-print">
         {/* Left: Mobile hamburger & Global Search Button */}
         <div className="flex items-center gap-3">
           <button
@@ -54,7 +101,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
           </button>
         </div>
 
-        {/* Right Actions: Quick Add, Theme, Language, Profile */}
+        {/* Right Actions: Quick Add, Notifications, Theme, Language, Profile */}
         <div className="flex items-center gap-2">
           {/* Quick Add Button */}
           <button
@@ -65,6 +112,86 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">إضافة سريعة</span>
           </button>
+
+          {/* Notifications Bell */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setShowNotifMenu(!showNotifMenu);
+                if (!showNotifMenu) loadNotifications();
+              }}
+              className="relative p-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="التنبيهات والإشعارات"
+            >
+              <Bell className="w-4 h-4" />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {showNotifMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowNotifMenu(false)} />
+                <div className="absolute left-0 mt-2 w-80 rounded-2xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 z-50 text-right overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                      التنبيهات الإدارية ({notifications.length})
+                    </span>
+                    {notifications.some((n) => !String(n.id).startsWith('live-') && !n.is_read) && (
+                      <button
+                        type="button"
+                        onClick={handleMarkAllRead}
+                        className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5" />
+                        تعليم الكل كمقروء
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    {notifications.length > 0 ? (
+                      notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={() => {
+                            setShowNotifMenu(false);
+                            if (n.link_url) navigate(n.link_url);
+                          }}
+                          className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors flex items-start gap-2.5"
+                        >
+                          <div className="mt-0.5 shrink-0">
+                            {n.type === 'urgent' ? (
+                              <AlertTriangle className="w-4 h-4 text-red-500" />
+                            ) : n.type === 'warning' ? (
+                              <Clock className="w-4 h-4 text-amber-500" />
+                            ) : (
+                              <Info className="w-4 h-4 text-sky-500" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                              {n.title}
+                            </p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                              {n.message}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-6 text-center text-xs text-slate-400">
+                        لا توجد تنبيهات عاجلة حالياً
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Theme Toggle */}
           <button
@@ -145,10 +272,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
       <QuickAddModal
         isOpen={showQuickAdd}
         onClose={() => setShowQuickAdd(false)}
-        onSuccess={() => window.location.reload()}
+        onSuccess={() => {
+          window.dispatchEvent(new CustomEvent('dom-refresh'));
+          loadNotifications();
+        }}
       />
       <GlobalSearchModal isOpen={showSearch} onClose={() => setShowSearch(false)} />
     </>
   );
 };
-
