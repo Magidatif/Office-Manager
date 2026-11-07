@@ -92,7 +92,15 @@ export const TasksPage: React.FC = () => {
         apiRequest<{ success: boolean; users: User[] }>('/settings/users').catch(() => ({ success: false, users: [] })),
       ]);
       if (deptRes.success) setDepartments(deptRes.departments);
-      if (usrRes.success && usrRes.users) setTeamUsers(usrRes.users);
+      if (usrRes.success && usrRes.users) {
+        const technicalOfficeMembers = usrRes.users.filter(
+          (u) =>
+            u.role !== 'director' &&
+            !u.job_title?.includes('مدير عام') &&
+            u.job_title?.trim() !== 'مدير الفرع'
+        );
+        setTeamUsers(technicalOfficeMembers);
+      }
     } catch (e) {
       console.error(e);
     }

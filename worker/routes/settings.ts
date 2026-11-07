@@ -35,7 +35,7 @@ settingsRoutes.get('/', async (c) => {
       .prepare("UPDATE users SET role = 'admin' WHERE LOWER(username) IN ('magid', 'admin') OR full_name LIKE '%ماجد%' OR id = 'usr-admin-01'")
       .run();
     await db
-      .prepare("UPDATE users SET role = 'director' WHERE (LOWER(username) LIKE '%ahmed%' OR job_title LIKE '%مدير عام%') AND LOWER(username) NOT IN ('magid', 'admin')")
+      .prepare("UPDATE users SET role = 'director' WHERE (LOWER(username) LIKE '%ahmed%' OR job_title LIKE '%مدير عام%' OR job_title LIKE '%مدير الفرع%') AND job_title NOT LIKE '%المكتب%' AND LOWER(username) NOT IN ('magid', 'admin')")
       .run();
 
     const departments = (await db.prepare('SELECT * FROM departments ORDER BY display_order ASC').all()).results;

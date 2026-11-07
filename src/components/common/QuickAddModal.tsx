@@ -54,7 +54,15 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         .catch(console.error);
       apiRequest<{ success: boolean; users: User[] }>('/settings/users')
         .then((res) => {
-          if (res.success && res.users) setTeamUsers(res.users);
+          if (res.success && res.users) {
+            const technicalOfficeMembers = res.users.filter(
+              (u) =>
+                u.role !== 'director' &&
+                !u.job_title?.includes('مدير عام') &&
+                u.job_title?.trim() !== 'مدير الفرع'
+            );
+            setTeamUsers(technicalOfficeMembers);
+          }
         })
         .catch(() => {});
     }
