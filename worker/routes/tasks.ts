@@ -16,6 +16,7 @@ taskRoutes.get('/', async (c) => {
       priority,
       department_id,
       assigned_to,
+      assigned_by,
       is_archived,
       search,
       overdue,
@@ -105,6 +106,11 @@ taskRoutes.get('/', async (c) => {
       params.push(`%${assigned_to}%`);
     }
 
+    if (assigned_by) {
+      query += ` AND t.assigned_by = ?`;
+      params.push(assigned_by);
+    }
+
     if (search) {
       query += ` AND (t.title LIKE ? OR t.description LIKE ? OR t.task_number LIKE ? OR t.reference_number LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
@@ -159,9 +165,18 @@ taskRoutes.get('/', async (c) => {
 
     const countRes = await db.prepare(countQuery).bind(...countParams).first<{ total: number }>();
 
+    // Distinct assigned_by sources for filter dropdown
+    const sourcesRows = (
+      await db
+        .prepare("SELECT DISTINCT assigned_by FROM tasks WHERE deleted_at IS NULL AND assigned_by IS NOT NULL AND TRIM(assigned_by) != '' ORDER BY assigned_by ASC")
+        .all<{ assigned_by: string }>()
+    ).results;
+    const sources = sourcesRows.map((r) => r.assigned_by);
+
     return c.json({
       success: true,
       tasks: result.results,
+      sources,
       pagination: {
         total: countRes?.total || 0,
         page: pageNum,

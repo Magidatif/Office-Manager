@@ -44,6 +44,8 @@ export const TasksPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'all' | 'mine' | 'today' | 'overdue' | 'urgent' | 'completed' | 'archived'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('');
+  const [selectedSource, setSelectedSource] = useState('');
+  const [taskSources, setTaskSources] = useState<string[]>([]);
   const [selectedAssignee, setSelectedAssignee] = useState('');
   const [selectedPriority, setSelectedPriority] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -132,6 +134,7 @@ export const TasksPage: React.FC = () => {
 
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
       if (selectedDept) params.append('department_id', selectedDept);
+      if (selectedSource) params.append('assigned_by', selectedSource);
       if (selectedAssignee && activeTab !== 'mine') params.append('assigned_to', selectedAssignee);
       if (selectedPriority && activeTab !== 'urgent') params.append('priority', selectedPriority);
       if (selectedStatus && activeTab !== 'completed') params.append('status', selectedStatus);
@@ -141,9 +144,10 @@ export const TasksPage: React.FC = () => {
         params.append('sort_by', sortBy);
         params.append('order', sortOrder);
       }
-      const res = await apiRequest<{ success: boolean; tasks: Task[] }>(`/tasks?${params.toString()}`);
+      const res = await apiRequest<{ success: boolean; tasks: Task[]; sources?: string[] }>(`/tasks?${params.toString()}`);
       if (res.success) {
         setTasks(res.tasks);
+        if (res.sources) setTaskSources(res.sources);
       }
     } catch (err) {
       console.error(err);
@@ -179,7 +183,7 @@ export const TasksPage: React.FC = () => {
 
   useEffect(() => {
     loadTasks();
-  }, [activeTab, selectedDept, selectedAssignee, selectedPriority, selectedStatus, sortBy, sortOrder]);
+  }, [activeTab, selectedDept, selectedSource, selectedAssignee, selectedPriority, selectedStatus, sortBy, sortOrder]);
 
   const openTaskDetails = async (taskId: string) => {
     try {
@@ -430,6 +434,20 @@ export const TasksPage: React.FC = () => {
           {departments.map((d) => (
             <option key={d.id} value={d.id}>
               {d.name}
+            </option>
+          ))}
+        </select>
+
+        {/* Source (assigned_by) Filter */}
+        <select
+          value={selectedSource}
+          onChange={(e) => setSelectedSource(e.target.value)}
+          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+        >
+          <option value="">جميع جهات التكليف (المصدر)</option>
+          {taskSources.map((src) => (
+            <option key={src} value={src}>
+              {src}
             </option>
           ))}
         </select>
@@ -956,10 +974,17 @@ export const TasksPage: React.FC = () => {
               </label>
               <input
                 type="text"
+                list="task-sources-datalist"
                 value={formData.assigned_by}
                 onChange={(e) => setFormData({ ...formData, assigned_by: e.target.value })}
+                placeholder="مثال: مدير الفرع، رئيس قطاع الأقاليم، BCM..."
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               />
+              <datalist id="task-sources-datalist">
+                {taskSources.map((src) => (
+                  <option key={src} value={src} />
+                ))}
+              </datalist>
             </div>
 
             <div>
