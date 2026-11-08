@@ -291,7 +291,7 @@ CREATE TABLE IF NOT EXISTS synced_emails (
   sender_email TEXT,
   received_at TEXT,
   body_text TEXT,
-  status TEXT NOT NULL DEFAULT 'unread',
+  status TEXT NOT NULL DEFAULT 'pending',
   priority TEXT NOT NULL DEFAULT 'high',
   department_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
   assigned_to TEXT DEFAULT 'د. ماجد عاطف',

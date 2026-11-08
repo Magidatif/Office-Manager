@@ -153,7 +153,7 @@ export async function ensureEmailSchema(db: D1Database) {
         sender_email TEXT,
         received_at TEXT,
         body_text TEXT,
-        status TEXT NOT NULL DEFAULT 'new',
+        status TEXT NOT NULL DEFAULT 'pending',
         priority TEXT NOT NULL DEFAULT 'high',
         department_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
         assigned_to TEXT,
@@ -169,7 +169,7 @@ export async function ensureEmailSchema(db: D1Database) {
   // Safely add standalone email columns to existing synced_emails table
   const extraCols = [
     'ALTER TABLE synced_emails ADD COLUMN body_text TEXT',
-    "ALTER TABLE synced_emails ADD COLUMN status TEXT NOT NULL DEFAULT 'new'",
+    "ALTER TABLE synced_emails ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'",
     "ALTER TABLE synced_emails ADD COLUMN priority TEXT NOT NULL DEFAULT 'high'",
     'ALTER TABLE synced_emails ADD COLUMN department_id TEXT',
     'ALTER TABLE synced_emails ADD COLUMN assigned_to TEXT',
@@ -222,6 +222,16 @@ export async function ensureEmailSchema(db: D1Database) {
       .bind(row.id)
       .run();
   }
+
+  // Normalize email statuses to 'replied' (تم الرد) or 'pending' (معلق)
+  await db
+    .prepare("UPDATE synced_emails SET status = 'replied' WHERE status IN ('completed', 'closed')")
+    .run()
+    .catch(() => {});
+  await db
+    .prepare("UPDATE synced_emails SET status = 'pending' WHERE status IS NULL OR status NOT IN ('replied', 'pending')")
+    .run()
+    .catch(() => {});
 
   const existing = await db.prepare('SELECT id FROM email_config LIMIT 1').first();
   if (!existing) {
@@ -917,7 +927,7 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
             id, message_id, ews_item_id, subject, sender_name, sender_email,
             received_at, body_text, status, priority, department_id, assigned_to,
             task_id, correspondence_id, attachments_count, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, NULL, NULL, ?, DATETIME('now'))`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, NULL, NULL, ?, DATETIME('now'))`
         )
         .bind(
           emailRecordId,

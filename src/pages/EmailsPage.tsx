@@ -54,7 +54,7 @@ export const EmailsPage: React.FC = () => {
   const [syncToDate, setSyncToDate] = useState<string>('');
 
   // Filters
-  const [activeTab, setActiveTab] = useState<'all' | 'today' | 'attachments' | 'pending' | 'completed'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'today' | 'attachments' | 'pending' | 'replied'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [selectedDept, setSelectedDept] = useState('');
@@ -102,7 +102,8 @@ export const EmailsPage: React.FC = () => {
 
       if (selectedDept) params.append('department_id', selectedDept);
       if (selectedPriority) params.append('priority', selectedPriority);
-      if (activeTab === 'completed') params.append('status', 'completed');
+      if (activeTab === 'replied') params.append('status', 'replied');
+      if (activeTab === 'pending') params.append('status', 'pending');
 
       const res = await apiRequest<{ success: boolean; emails: SyncedEmailRecord[]; config: any }>(
         `/email/list?${params.toString()}`
@@ -111,8 +112,6 @@ export const EmailsPage: React.FC = () => {
         let list = res.emails || [];
         if (activeTab === 'attachments') {
           list = list.filter((e) => (e.attachments_count || 0) > 0);
-        } else if (activeTab === 'pending') {
-          list = list.filter((e) => e.status !== 'completed');
         }
         setEmails(list);
         if (res.config) setConfig(res.config);
@@ -192,13 +191,13 @@ export const EmailsPage: React.FC = () => {
     }
   };
 
-  const handleUpdateEmailStatus = async (emailId: string, newStatus: string) => {
+  const handleUpdateEmailStatus = async (emailId: string, newStatus: 'replied' | 'pending') => {
     try {
       await apiRequest(`/email/item/${emailId}`, {
         method: 'PUT',
         body: JSON.stringify({ status: newStatus }),
       });
-      toast.success(newStatus === 'completed' ? 'تم تعليم الإيميل كمكتمل / تمت المراجعة' : 'تم إعادة الإيميل لقيد المتابعة');
+      toast.success(newStatus === 'replied' ? 'تم تحديث حالة الإيميل إلى: تم الرد' : 'تم تحديث حالة الإيميل إلى: معلق');
       loadEmails();
       if (selectedEmail?.id === emailId) {
         setSelectedEmail((prev) => (prev ? { ...prev, status: newStatus } : null));
@@ -370,9 +369,9 @@ export const EmailsPage: React.FC = () => {
         {[
           { key: 'all', label: 'جميع الإيميلات الواردة', icon: Inbox },
           { key: 'today', label: 'إيميلات اليوم', icon: Calendar },
-          { key: 'pending', label: 'قيد المراجعة والمتابعة', icon: Clock },
+          { key: 'pending', label: 'معلق', icon: Clock },
+          { key: 'replied', label: 'تم الرد', icon: CheckCircle2 },
           { key: 'attachments', label: 'بها مرفقات PDF', icon: Paperclip },
-          { key: 'completed', label: 'تمت مراجعتها', icon: CheckCircle2 },
         ].map((tab) => {
           const Icon = tab.icon;
           return (
@@ -507,25 +506,32 @@ export const EmailsPage: React.FC = () => {
               </div>
 
               <div
-                className="flex items-center gap-2 shrink-0"
+                className="flex items-center gap-1.5 shrink-0"
                 onClick={(e) => e.stopPropagation()}
               >
                 <button
                   type="button"
-                  onClick={() =>
-                    handleUpdateEmailStatus(
-                      em.id,
-                      em.status === 'completed' ? 'new' : 'completed'
-                    )
-                  }
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 ${
-                    em.status === 'completed'
-                      ? 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'
-                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200'
+                  onClick={() => handleUpdateEmailStatus(em.id, 'replied')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 border ${
+                    em.status === 'replied'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                      : 'bg-emerald-50/70 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                   }`}
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  {em.status === 'completed' ? 'إعادة للمتابعة' : 'تمت المراجعة'}
+                  <span>تم الرد</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateEmailStatus(em.id, 'pending')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 border ${
+                    em.status !== 'replied'
+                      ? 'bg-amber-500 text-white border-amber-500 shadow-2xs'
+                      : 'bg-amber-50/70 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>معلق</span>
                 </button>
               </div>
             </div>
@@ -605,16 +611,27 @@ export const EmailsPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() =>
-                    handleUpdateEmailStatus(
-                      selectedEmail.id,
-                      selectedEmail.status === 'completed' ? 'new' : 'completed'
-                    )
-                  }
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5"
+                  onClick={() => handleUpdateEmailStatus(selectedEmail.id, 'replied')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-colors ${
+                    selectedEmail.status === 'replied'
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                  }`}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{selectedEmail.status === 'completed' ? 'إعادة للمتابعة' : 'تعليم كتمت المراجعة'}</span>
+                  <span>تم الرد</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateEmailStatus(selectedEmail.id, 'pending')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-colors ${
+                    selectedEmail.status !== 'replied'
+                      ? 'bg-amber-500 text-white border-amber-500'
+                      : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                  }`}
+                >
+                  <Clock className="w-4 h-4" />
+                  <span>معلق</span>
                 </button>
                 <button
                   type="button"
