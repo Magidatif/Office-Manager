@@ -5,7 +5,7 @@ import { toast } from '../../context/ToastContext';
 import { Paperclip, Upload, Download, Trash2, FileText, Loader2 } from 'lucide-react';
 
 interface EntityAttachmentsProps {
-  referenceType: 'task' | 'correspondence' | 'meeting';
+  referenceType: 'task' | 'correspondence' | 'meeting' | 'email';
   referenceId: string;
   departmentId?: string | null;
   attachments?: Attachment[];

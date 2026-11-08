@@ -29,7 +29,6 @@ export const CorrespondencesPage: React.FC = () => {
   const [searchParams] = useSearchParams();
 
   // Filters
-  const [activeTab, setActiveTab] = useState<'internal' | 'emails' | 'all'>('internal');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -39,52 +38,6 @@ export const CorrespondencesPage: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Correspondence | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [syncingMail, setSyncingMail] = useState(false);
-  const [syncTargetDate, setSyncTargetDate] = useState<string>('');
-
-  const handleSyncEmailCorrespondences = async () => {
-    try {
-      setSyncingMail(true);
-      toast.info(
-        syncTargetDate
-          ? `جاري سحب المراسلات من البريد الإلكتروني الرسمي ليوم (${syncTargetDate})...`
-          : 'جاري سحب المراسلات الجديدة من البريد الإلكتروني الرسمي...'
-      );
-      const res = await apiRequest<{
-        success: boolean;
-        fetchedCount: number;
-        importedCount: number;
-        attachmentsSavedCount: number;
-      }>('/email/sync', {
-        method: 'POST',
-        body: JSON.stringify(syncTargetDate ? { targetDate: syncTargetDate } : {}),
-      });
-
-      if (res.success) {
-        if (res.importedCount > 0) {
-          toast.success(
-            syncTargetDate
-              ? `تم قيد ${res.importedCount} مكاتبة واردة ليوم (${syncTargetDate}) وتحويلها لمهام مع ${res.attachmentsSavedCount} مرفق`
-              : `تم قيد ${res.importedCount} مكاتبة واردة جديدة وتحويلها لمهام مع ${res.attachmentsSavedCount} مرفق`
-          );
-        } else {
-          toast.info(
-            syncTargetDate
-              ? res.fetchedCount > 0
-                ? `جميع رسائل يوم (${syncTargetDate}) البالغ عددها (${res.fetchedCount}) مقيدة بالفعل في سجل المراسلات`
-                : `لا توجد رسائل واردة على البريد الرسمي في يوم (${syncTargetDate})`
-              : 'سجل المراسلات محدّث — لا توجد رسائل بريد جديدة غير مسحوبة'
-          );
-        }
-        setActiveTab('emails');
-        loadData();
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'فشل سحب البريد الإلكتروني');
-    } finally {
-      setSyncingMail(false);
-    }
-  };
 
   // Form
   const [formData, setFormData] = useState<any>({
@@ -108,8 +61,6 @@ export const CorrespondencesPage: React.FC = () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (activeTab === 'emails') params.append('from_email', '1');
-      else if (activeTab === 'internal') params.append('from_email', '0');
 
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
       if (selectedType) params.append('letter_type', selectedType);
@@ -163,7 +114,7 @@ export const CorrespondencesPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [activeTab, selectedType, selectedStatus, selectedDept]);
+  }, [selectedType, selectedStatus, selectedDept]);
 
   const openEditModal = (corr: Correspondence, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -259,45 +210,6 @@ export const CorrespondencesPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-          <div className="flex items-center rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
-            <div className="flex items-center gap-1 px-2.5 py-1.5 border-l border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60">
-              <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <input
-                type="date"
-                value={syncTargetDate}
-                onChange={(e) => setSyncTargetDate(e.target.value)}
-                title="حدد تاريخ يوم معين لسحب مراسلاته فقط (أو اتركه فارغاً لسحب الأحدث)"
-                className="bg-transparent text-xs font-mono text-slate-700 dark:text-slate-200 focus:outline-none"
-              />
-              {syncTargetDate && (
-                <button
-                  type="button"
-                  onClick={() => setSyncTargetDate('')}
-                  title="إلغاء تحديد اليوم (سحب الأحدث)"
-                  className="text-[10px] font-bold text-slate-400 hover:text-red-500 px-1"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={handleSyncEmailCorrespondences}
-              disabled={syncingMail}
-              className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs sm:text-sm font-bold transition-all"
-            >
-              <RefreshCw className={`w-4 h-4 ${syncingMail ? 'animate-spin' : ''}`} />
-              <Mail className="w-4 h-4" />
-              <span>
-                {syncingMail
-                  ? 'جاري السحب...'
-                  : syncTargetDate
-                  ? `سحب مراسلات (${syncTargetDate})`
-                  : 'سحب المراسلات من البريد'}
-              </span>
-            </button>
-          </div>
-
           <button
             onClick={() => {
               setFormData({
@@ -324,31 +236,6 @@ export const CorrespondencesPage: React.FC = () => {
             قيد مخاطبة جديدة
           </button>
         </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px">
-        {[
-          { key: 'internal', label: 'المراسلات والمخاطبات المسجلة', icon: Sparkles },
-          { key: 'emails', label: 'إيميلات البريد الرسمي', icon: Mail },
-          { key: 'all', label: 'الكل', icon: Search },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key as any)}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 whitespace-nowrap transition-all ${
-                activeTab === tab.key
-                  ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
       </div>
 
       {/* Filter Bar */}

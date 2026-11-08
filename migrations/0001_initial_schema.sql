@@ -281,7 +281,7 @@ CREATE TABLE IF NOT EXISTS email_config (
   updated_at TEXT NOT NULL DEFAULT (DATETIME('now'))
 );
 
--- 17. Synced Emails Log (سجل الرسائل المسحوبة لمنع التكرار وربطها بالمهام والمرفقات)
+-- 17. Synced Emails Log (سجل الإيميلات الواردة المستقل عن المهام)
 CREATE TABLE IF NOT EXISTS synced_emails (
   id TEXT PRIMARY KEY,
   message_id TEXT NOT NULL UNIQUE,
@@ -290,6 +290,12 @@ CREATE TABLE IF NOT EXISTS synced_emails (
   sender_name TEXT,
   sender_email TEXT,
   received_at TEXT,
+  body_text TEXT,
+  status TEXT NOT NULL DEFAULT 'unread',
+  priority TEXT NOT NULL DEFAULT 'high',
+  department_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
+  assigned_to TEXT DEFAULT 'د. ماجد عاطف',
+  notes TEXT,
   task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
   correspondence_id TEXT REFERENCES correspondences(id) ON DELETE SET NULL,
   attachments_count INTEGER NOT NULL DEFAULT 0,

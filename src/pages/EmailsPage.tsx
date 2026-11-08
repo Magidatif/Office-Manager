@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { apiRequest } from '../api/client';
 import { Department, Attachment } from '../types';
 import { StatusBadge, PriorityBadge } from '../components/common/Badge';
@@ -14,12 +13,12 @@ import {
   Search,
   Calendar,
   Paperclip,
-  ExternalLink,
   CheckCircle2,
   Clock,
   Inbox,
   User,
   Building2,
+  Trash2,
 } from 'lucide-react';
 
 interface SyncedEmailRecord {
@@ -30,24 +29,18 @@ interface SyncedEmailRecord {
   sender_name?: string;
   sender_email?: string;
   received_at?: string;
-  task_id?: string;
-  correspondence_id?: string;
+  body_text?: string;
+  status: string;
+  priority: string;
+  department_id?: string;
+  department_name?: string;
+  assigned_to?: string;
+  notes?: string;
   attachments_count: number;
   created_at?: string;
-  task_number?: string;
-  task_title?: string;
-  task_description?: string;
-  task_status?: string;
-  task_priority?: string;
-  task_assigned_to?: string;
-  task_due_date?: string;
-  task_department_id?: string;
-  department_name?: string;
-  correspondence_reg_number?: string;
 }
 
 export const EmailsPage: React.FC = () => {
-  const navigate = useNavigate();
   const [emails, setEmails] = useState<SyncedEmailRecord[]>([]);
   const [config, setConfig] = useState<any>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -71,13 +64,23 @@ export const EmailsPage: React.FC = () => {
   const [selectedEmail, setSelectedEmail] = useState<SyncedEmailRecord | null>(null);
   const [selectedAttachments, setSelectedAttachments] = useState<Attachment[]>([]);
 
-  const loadSelectedTaskAttachments = async (taskId: string) => {
+  const loadDepartments = async () => {
     try {
-      const res = await apiRequest<{ success: boolean; task: any }>(`/tasks/${taskId}`);
-      if (res.success && res.task?.attachments) {
-        setSelectedAttachments(res.task.attachments);
-      } else {
-        setSelectedAttachments([]);
+      const res = await apiRequest<{ success: boolean; departments: Department[] }>('/departments');
+      if (res.success) setDepartments(res.departments);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const loadEmailAttachments = async (emailId: string) => {
+    try {
+      const res = await apiRequest<{ success: boolean; email: SyncedEmailRecord; attachments: Attachment[] }>(
+        `/email/item/${emailId}`
+      );
+      if (res.success) {
+        setSelectedEmail(res.email);
+        setSelectedAttachments(res.attachments || []);
       }
     } catch (e) {
       setSelectedAttachments([]);
@@ -86,20 +89,7 @@ export const EmailsPage: React.FC = () => {
 
   const openEmailDetails = (em: SyncedEmailRecord) => {
     setSelectedEmail(em);
-    if (em.task_id) {
-      loadSelectedTaskAttachments(em.task_id);
-    } else {
-      setSelectedAttachments([]);
-    }
-  };
-
-  const loadDepartments = async () => {
-    try {
-      const res = await apiRequest<{ success: boolean; departments: Department[] }>('/departments');
-      if (res.success) setDepartments(res.departments);
-    } catch (e) {
-      console.error(e);
-    }
+    loadEmailAttachments(em.id);
   };
 
   const loadEmails = async () => {
@@ -122,7 +112,7 @@ export const EmailsPage: React.FC = () => {
         if (activeTab === 'attachments') {
           list = list.filter((e) => (e.attachments_count || 0) > 0);
         } else if (activeTab === 'pending') {
-          list = list.filter((e) => e.task_status !== 'completed');
+          list = list.filter((e) => e.status !== 'completed');
         }
         setEmails(list);
         if (res.config) setConfig(res.config);
@@ -181,7 +171,7 @@ export const EmailsPage: React.FC = () => {
       if (res.success) {
         if (res.importedCount > 0) {
           toast.success(
-            `تم سحب ${res.importedCount} إيميل جديد ${labelDesc} وتحويله لمهام عمل (مع ${res.attachmentsSavedCount} مرفق)!`
+            `تم سحب ${res.importedCount} إيميل جديد ${labelDesc} (مع ${res.attachmentsSavedCount} مرفق)!`
           );
         } else {
           toast.info(
@@ -202,19 +192,30 @@ export const EmailsPage: React.FC = () => {
     }
   };
 
-  const handleQuickTaskStatus = async (taskId: string, newStatus: string) => {
+  const handleUpdateEmailStatus = async (emailId: string, newStatus: string) => {
     try {
-      await apiRequest(`/tasks/${taskId}/status`, {
-        method: 'POST',
-        body: JSON.stringify({ status: newStatus, progress: newStatus === 'completed' ? 100 : 50 }),
+      await apiRequest(`/email/item/${emailId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus }),
       });
-      toast.success(newStatus === 'completed' ? 'تم تعليم مهمة الإيميل كمكتملة' : 'تم إعادة فتح المهمة');
+      toast.success(newStatus === 'completed' ? 'تم تعليم الإيميل كمكتمل / تمت المراجعة' : 'تم إعادة الإيميل لقيد المتابعة');
       loadEmails();
-      if (selectedEmail?.task_id === taskId) {
-        setSelectedEmail((prev) => (prev ? { ...prev, task_status: newStatus } : null));
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail((prev) => (prev ? { ...prev, status: newStatus } : null));
       }
     } catch (e: any) {
       toast.error(e.message || 'تعذر تحديث الحالة');
+    }
+  };
+
+  const handleDeleteEmail = async (emailId: string) => {
+    try {
+      await apiRequest(`/email/item/${emailId}`, { method: 'DELETE' });
+      toast.success('تم حذف سجل الإيميل');
+      if (selectedEmail?.id === emailId) setSelectedEmail(null);
+      loadEmails();
+    } catch (e: any) {
+      toast.error(e.message || 'تعذر حذف الإيميل');
     }
   };
 
@@ -227,11 +228,11 @@ export const EmailsPage: React.FC = () => {
             <Mail className="w-6 h-6 text-sky-600" />
             <span>الإيميلات الواردة (البريد الرسمي للمكتب الفني)</span>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 font-bold border border-sky-200">
-              {emails.length} رسالة
+              {emails.length} إيميل
             </span>
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            تبويب مستقل لمتابعة وسحب رسائل البريد الإلكتروني الرسمي ({config?.email_address || 'technicaloffice.luxor@eha.gov.eg'}) ومرفقاتها ومهامها
+            قسم مستقل بالكامل لمتابعة وسحب رسائل البريد الإلكتروني الرسمي ({config?.email_address || 'technicaloffice.luxor@eha.gov.eg'}) ومرفقاتها بعيداً عن المهام الداخلية
           </p>
         </div>
 
@@ -367,11 +368,11 @@ export const EmailsPage: React.FC = () => {
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px">
         {[
-          { key: 'all', label: 'جميع الإيميلات المسحوبة', icon: Inbox },
+          { key: 'all', label: 'جميع الإيميلات الواردة', icon: Inbox },
           { key: 'today', label: 'إيميلات اليوم', icon: Calendar },
-          { key: 'pending', label: 'قيد المتابعة', icon: Clock },
+          { key: 'pending', label: 'قيد المراجعة والمتابعة', icon: Clock },
           { key: 'attachments', label: 'بها مرفقات PDF', icon: Paperclip },
-          { key: 'completed', label: 'المكتملة', icon: CheckCircle2 },
+          { key: 'completed', label: 'تمت مراجعتها', icon: CheckCircle2 },
         ].map((tab) => {
           const Icon = tab.icon;
           return (
@@ -400,7 +401,7 @@ export const EmailsPage: React.FC = () => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && loadEmails()}
-            placeholder="بحث في عنوان الإيميل، اسم الراسل، البريد الإلكتروني، رقم المهمة..."
+            placeholder="بحث في عنوان الإيميل، اسم الراسل، البريد الإلكتروني، أو محتوى الرسالة..."
             className="w-full pr-10 pl-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none"
           />
         </div>
@@ -472,14 +473,8 @@ export const EmailsPage: React.FC = () => {
                     {em.received_at ? em.received_at.replace('T', ' ').slice(0, 16) : ''}
                   </span>
 
-                  {em.task_number && (
-                    <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[11px] font-bold">
-                      {em.task_number}
-                    </span>
-                  )}
-
-                  {em.task_priority && <PriorityBadge priority={em.task_priority as any} />}
-                  {em.task_status && <StatusBadge status={em.task_status as any} />}
+                  {em.priority && <PriorityBadge priority={em.priority as any} />}
+                  {em.status && <StatusBadge status={em.status as any} />}
 
                   {em.attachments_count > 0 && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 text-[11px] font-bold border border-amber-200 dark:border-amber-800">
@@ -515,36 +510,23 @@ export const EmailsPage: React.FC = () => {
                 className="flex items-center gap-2 shrink-0"
                 onClick={(e) => e.stopPropagation()}
               >
-                {em.task_id && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleQuickTaskStatus(
-                          em.task_id!,
-                          em.task_status === 'completed' ? 'in_progress' : 'completed'
-                        )
-                      }
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 ${
-                        em.task_status === 'completed'
-                          ? 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'
-                          : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      {em.task_status === 'completed' ? 'إعادة فتح' : 'إتمام المهمة'}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/tasks?tab=emails&taskId=${em.task_id}`)}
-                      className="px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 text-xs font-bold transition-colors flex items-center gap-1"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>فتح المهمة</span>
-                    </button>
-                  </>
-                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleUpdateEmailStatus(
+                      em.id,
+                      em.status === 'completed' ? 'new' : 'completed'
+                    )
+                  }
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 ${
+                    em.status === 'completed'
+                      ? 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'
+                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {em.status === 'completed' ? 'إعادة للمتابعة' : 'تمت المراجعة'}
+                </button>
               </div>
             </div>
           ))}
@@ -577,19 +559,14 @@ export const EmailsPage: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-slate-200/60 dark:border-slate-700">
-                {selectedEmail.task_number && (
-                  <span>
-                    رقم المهمة: <strong className="font-mono text-sky-600">{selectedEmail.task_number}</strong>
-                  </span>
-                )}
                 {selectedEmail.department_name && (
                   <span>
                     الإدارة المختصة: <strong>{selectedEmail.department_name}</strong>
                   </span>
                 )}
-                {selectedEmail.task_assigned_to && (
+                {selectedEmail.assigned_to && (
                   <span>
-                    المكلف بالمتابعة: <strong>{selectedEmail.task_assigned_to}</strong>
+                    المختص بالمتابعة: <strong>{selectedEmail.assigned_to}</strong>
                   </span>
                 )}
               </div>
@@ -598,47 +575,55 @@ export const EmailsPage: React.FC = () => {
             <div className="space-y-1.5">
               <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">نص ومحتوى الرسالة:</h4>
               <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto text-slate-700 dark:text-slate-200">
-                {selectedEmail.task_description || '(لا يوجد نص إضافي بالرسالة — يرجى مراجعة المرفقات بالأسفل)'}
+                {selectedEmail.body_text || '(لا يوجد نص إضافي بالرسالة — يرجى مراجعة المرفقات بالأسفل)'}
               </div>
             </div>
 
-            {selectedEmail.task_id && (
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
-                <EntityAttachments
-                  referenceType="task"
-                  referenceId={selectedEmail.task_id}
-                  departmentId={selectedEmail.task_department_id}
-                  attachments={selectedAttachments}
-                  onRefresh={() => {
-                    loadSelectedTaskAttachments(selectedEmail.task_id!);
-                    loadEmails();
-                  }}
-                />
-              </div>
-            )}
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+              <EntityAttachments
+                referenceType="email"
+                referenceId={selectedEmail.id}
+                departmentId={selectedEmail.department_id}
+                attachments={selectedAttachments}
+                onRefresh={() => {
+                  loadEmailAttachments(selectedEmail.id);
+                  loadEmails();
+                }}
+              />
+            </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-              {selectedEmail.task_id && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const id = selectedEmail.task_id;
-                    setSelectedEmail(null);
-                    navigate(`/tasks?tab=emails&taskId=${id}`);
-                  }}
-                  className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold flex items-center gap-1.5"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>فتح صفحة المهمة الكاملة</span>
-                </button>
-              )}
+            <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => setSelectedEmail(null)}
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold"
+                onClick={() => handleDeleteEmail(selectedEmail.id)}
+                className="px-3 py-2 rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 text-xs font-bold flex items-center gap-1"
               >
-                إغلاق
+                <Trash2 className="w-4 h-4" />
+                <span>حذف الإيميل</span>
               </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleUpdateEmailStatus(
+                      selectedEmail.id,
+                      selectedEmail.status === 'completed' ? 'new' : 'completed'
+                    )
+                  }
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{selectedEmail.status === 'completed' ? 'إعادة للمتابعة' : 'تعليم كتمت المراجعة'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedEmail(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold"
+                >
+                  إغلاق
+                </button>
+              </div>
             </div>
           </div>
         )}

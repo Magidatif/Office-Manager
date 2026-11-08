@@ -69,8 +69,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
         if (res.importedCount > 0) {
           toast.success(
             targetDate
-              ? `تم سحب ${res.importedCount} رسالة ليوم (${targetDate}) وتحويلها لمهام عمل!`
-              : `بريد وارد: تم سحب ${res.importedCount} رسالة جديدة وتحويلها لمهام عمل!`
+              ? `تم سحب ${res.importedCount} رسالة ليوم (${targetDate}) إلى قسم الإيميلات الواردة!`
+              : `بريد وارد: تم سحب ${res.importedCount} رسالة جديدة إلى قسم الإيميلات الواردة!`
           );
           window.dispatchEvent(new CustomEvent('dom-refresh'));
           loadNotifications();
@@ -78,7 +78,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
           toast.info(
             targetDate
               ? res.fetchedCount > 0
-                ? `جميع رسائل يوم (${targetDate}) البالغ عددها (${res.fetchedCount}) مسحوبة بالفعل كمهام`
+                ? `جميع رسائل يوم (${targetDate}) البالغ عددها (${res.fetchedCount}) مسحوبة بالفعل في قسم الإيميلات`
                 : `لا توجد رسائل واردة على البريد في يوم (${targetDate})`
               : 'البريد الرسمي محدّث — لا توجد رسائل جديدة حالياً'
           );

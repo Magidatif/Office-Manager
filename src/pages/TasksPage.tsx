@@ -41,11 +41,9 @@ export const TasksPage: React.FC = () => {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [teamUsers, setTeamUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncingEmail, setSyncingEmail] = useState(false);
-  const [syncTargetDate, setSyncTargetDate] = useState<string>('');
 
   // Filters
-  const [activeTab, setActiveTab] = useState<'all' | 'emails' | 'mine' | 'today' | 'overdue' | 'urgent' | 'completed' | 'archived'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'mine' | 'today' | 'overdue' | 'urgent' | 'completed' | 'archived'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('');
   const [selectedSource, setSelectedSource] = useState('');
@@ -138,9 +136,6 @@ export const TasksPage: React.FC = () => {
       setLoading(true);
       const params = new URLSearchParams();
 
-      if (activeTab === 'emails') params.append('from_email', '1');
-      else if (activeTab === 'all') params.append('from_email', '0');
-
       if (activeTab === 'mine' && user?.full_name) params.append('assigned_to', user.full_name);
       if (activeTab === 'today') params.append('today', '1');
       if (activeTab === 'overdue') params.append('overdue', '1');
@@ -186,11 +181,9 @@ export const TasksPage: React.FC = () => {
     const paramToday = searchParams.get('today');
     const paramPriority = searchParams.get('priority');
     const paramStatus = searchParams.get('status');
-    const paramTab = searchParams.get('tab');
     const paramTaskId = searchParams.get('taskId');
 
-    if (paramTab === 'emails') setActiveTab('emails');
-    else if (paramOverdue === '1') setActiveTab('overdue');
+    if (paramOverdue === '1') setActiveTab('overdue');
     else if (paramToday === '1') setActiveTab('today');
     else if (paramPriority === 'urgent_critical') setActiveTab('urgent');
     else if (paramStatus === 'completed') setActiveTab('completed');
@@ -352,53 +345,6 @@ export const TasksPage: React.FC = () => {
     }
   };
 
-  const handleSyncEmailTasks = async () => {
-    try {
-      setSyncingEmail(true);
-      toast.info(
-        syncTargetDate
-          ? `جاري الاتصال بخادم البريد الرسمي وسحب إيميلات يوم (${syncTargetDate}) كمهام...`
-          : 'جاري الاتصال بخادم البريد الرسمي وسحب الإيميلات كمهام...'
-      );
-      const res = await apiRequest<{
-        success: boolean;
-        fetchedCount: number;
-        importedCount: number;
-        skippedCount: number;
-        attachmentsSavedCount: number;
-        email: string;
-      }>('/email/sync', {
-        method: 'POST',
-        body: JSON.stringify(syncTargetDate ? { targetDate: syncTargetDate } : {}),
-      });
-
-      if (res.success) {
-        if (res.importedCount > 0) {
-          toast.success(
-            syncTargetDate
-              ? `تم سحب وتحويل ${res.importedCount} بريد إلكتروني ليوم (${syncTargetDate}) إلى مهام بنجاح (مع ${res.attachmentsSavedCount} مرفق)!`
-              : `تم سحب وتحويل ${res.importedCount} بريد إلكتروني إلى مهام بنجاح (مع ${res.attachmentsSavedCount} مرفق)!`
-          );
-          setActiveTab('emails');
-        } else {
-          toast.info(
-            syncTargetDate
-              ? res.fetchedCount > 0
-                ? `جميع رسائل يوم (${syncTargetDate}) البالغ عددها (${res.fetchedCount}) مسحوبة بالفعل كمهام`
-                : `لا توجد رسائل واردة على البريد الرسمي في يوم (${syncTargetDate})`
-              : `البريد محدّث بالكامل — لا توجد رسائل جديدة غير مسحوبة (${res.email})`
-          );
-          setActiveTab('emails');
-        }
-        loadTasks();
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'فشل سحب البريد الإلكتروني');
-    } finally {
-      setSyncingEmail(false);
-    }
-  };
-
   const handleDelete = async () => {
     if (!selectedTask) return;
     try {
@@ -425,46 +371,6 @@ export const TasksPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-          <div className="flex items-center rounded-xl border border-sky-200 dark:border-sky-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
-            <div className="flex items-center gap-1 px-2.5 py-1.5 border-l border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60">
-              <Calendar className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-              <input
-                type="date"
-                value={syncTargetDate}
-                onChange={(e) => setSyncTargetDate(e.target.value)}
-                title="حدد تاريخ يوم معين لسحب إيميلاته فقط (أو اتركه فارغاً لسحب الأحدث)"
-                className="bg-transparent text-xs font-mono text-slate-700 dark:text-slate-200 focus:outline-none"
-              />
-              {syncTargetDate && (
-                <button
-                  type="button"
-                  onClick={() => setSyncTargetDate('')}
-                  title="إلغاء تحديد اليوم (سحب الأحدث)"
-                  className="text-[10px] font-bold text-slate-400 hover:text-red-500 px-1"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={handleSyncEmailTasks}
-              disabled={syncingEmail}
-              title="سحب الإيميلات الواردة على technicaloffice.luxor@eha.gov.eg وتحويلها لمهام"
-              className="flex items-center gap-2 px-3.5 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white text-xs sm:text-sm font-bold transition-all"
-            >
-              <RefreshCw className={`w-4 h-4 ${syncingEmail ? 'animate-spin' : ''}`} />
-              <Mail className="w-4 h-4" />
-              <span>
-                {syncingEmail
-                  ? 'جاري السحب...'
-                  : syncTargetDate
-                  ? `سحب إيميلات (${syncTargetDate})`
-                  : 'سحب الإيميلات كمهام'}
-              </span>
-            </button>
-          </div>
-
           <button
             onClick={() => {
               setFormData({
@@ -495,8 +401,7 @@ export const TasksPage: React.FC = () => {
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px">
         {[
-          { key: 'all', label: 'المهام الداخلية', icon: ListTodo },
-          { key: 'emails', label: 'إيميلات البريد الرسمي', icon: Mail },
+          { key: 'all', label: 'جميع المهام', icon: ListTodo },
           { key: 'mine', label: 'مهامي الشخصية', icon: UserCheck },
           { key: 'today', label: 'مهام اليوم', icon: Calendar },
           { key: 'overdue', label: 'المهام المتأخرة', icon: AlertTriangle, countColor: 'text-red-600' },

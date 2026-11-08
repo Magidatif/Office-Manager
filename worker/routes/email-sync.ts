@@ -152,6 +152,12 @@ export async function ensureEmailSchema(db: D1Database) {
         sender_name TEXT,
         sender_email TEXT,
         received_at TEXT,
+        body_text TEXT,
+        status TEXT NOT NULL DEFAULT 'new',
+        priority TEXT NOT NULL DEFAULT 'high',
+        department_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
+        assigned_to TEXT,
+        notes TEXT,
         task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
         correspondence_id TEXT REFERENCES correspondences(id) ON DELETE SET NULL,
         attachments_count INTEGER NOT NULL DEFAULT 0,
@@ -159,6 +165,63 @@ export async function ensureEmailSchema(db: D1Database) {
       )`
     )
     .run();
+
+  // Safely add standalone email columns to existing synced_emails table
+  const extraCols = [
+    'ALTER TABLE synced_emails ADD COLUMN body_text TEXT',
+    "ALTER TABLE synced_emails ADD COLUMN status TEXT NOT NULL DEFAULT 'new'",
+    "ALTER TABLE synced_emails ADD COLUMN priority TEXT NOT NULL DEFAULT 'high'",
+    'ALTER TABLE synced_emails ADD COLUMN department_id TEXT',
+    'ALTER TABLE synced_emails ADD COLUMN assigned_to TEXT',
+    'ALTER TABLE synced_emails ADD COLUMN notes TEXT',
+  ];
+  for (const sql of extraCols) {
+    await db.prepare(sql).run().catch(() => {});
+  }
+
+  // One-time cleanup: migrate existing email-generated tasks & correspondences into synced_emails so Tasks & Correspondences stay 100% separate from Emails
+  const linkedRows = (
+    await db
+      .prepare('SELECT id, task_id, correspondence_id FROM synced_emails WHERE task_id IS NOT NULL OR correspondence_id IS NOT NULL')
+      .all<{ id: string; task_id?: string; correspondence_id?: string }>()
+  ).results;
+
+  for (const row of linkedRows) {
+    if (row.task_id) {
+      const t = await db
+        .prepare('SELECT description, status, priority, department_id, assigned_to FROM tasks WHERE id = ?')
+        .bind(row.task_id)
+        .first<any>();
+      if (t) {
+        await db
+          .prepare(
+            `UPDATE synced_emails SET
+              body_text = COALESCE(body_text, ?),
+              status = COALESCE(?, status, 'new'),
+              priority = COALESCE(?, priority, 'high'),
+              department_id = COALESCE(department_id, ?),
+              assigned_to = COALESCE(assigned_to, ?)
+             WHERE id = ?`
+          )
+          .bind(t.description || '', t.status || 'new', t.priority || 'high', t.department_id || null, t.assigned_to || null, row.id)
+          .run();
+      }
+      // Re-parent attachments from taskId to synced_emails.id
+      await db
+        .prepare("UPDATE attachments SET reference_type = 'email', reference_id = ? WHERE reference_id = ?")
+        .bind(row.id, row.task_id)
+        .run();
+      await db.prepare('DELETE FROM task_history WHERE task_id = ?').bind(row.task_id).run();
+      await db.prepare('DELETE FROM tasks WHERE id = ?').bind(row.task_id).run();
+    }
+    if (row.correspondence_id) {
+      await db.prepare('DELETE FROM correspondences WHERE id = ?').bind(row.correspondence_id).run();
+    }
+    await db
+      .prepare('UPDATE synced_emails SET task_id = NULL, correspondence_id = NULL WHERE id = ?')
+      .bind(row.id)
+      .run();
+  }
 
   const existing = await db.prepare('SELECT id FROM email_config LIMIT 1').first();
   if (!existing) {
@@ -671,24 +734,13 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
 
       // Check if already synced
       const alreadySynced = await db
-        .prepare('SELECT id, task_id FROM synced_emails WHERE message_id = ? OR ews_item_id = ?')
+        .prepare('SELECT id FROM synced_emails WHERE message_id = ? OR ews_item_id = ?')
         .bind(internetMsgId, ewsId)
-        .first<{ id: string; task_id: string }>();
+        .first<{ id: string }>();
 
       if (alreadySynced) {
-        if (alreadySynced.task_id) {
-          const taskExists = await db
-            .prepare('SELECT id FROM tasks WHERE id = ? AND deleted_at IS NULL')
-            .bind(alreadySynced.task_id)
-            .first();
-          if (taskExists) {
-            skippedCount++;
-            continue;
-          }
-        } else {
-          skippedCount++;
-          continue;
-        }
+        skippedCount++;
+        continue;
       }
 
       // Fetch full email body & attachments via GetItem
@@ -762,7 +814,7 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
         console.error('[EmailSync] Error fetching GetItem details:', e);
       }
 
-      const { departmentId, taskType, priority } = inferDepartmentAndType(
+      const { departmentId, priority } = inferDepartmentAndType(
         subject,
         fullBodyText,
         senderName,
@@ -776,27 +828,10 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
           : priority || config.default_priority || 'high';
 
       const receivedDateStr = receivedAt.split('T')[0] || new Date().toISOString().split('T')[0];
-
-      // Calculate default due date (+2 days for normal/high, +1 day for urgent_critical)
-      const dueObj = new Date(receivedDateStr);
-      dueObj.setDate(dueObj.getDate() + (finalPriority === 'urgent_critical' ? 1 : 2));
-      const dueDateStr = dueObj.toISOString().split('T')[0];
-
-      // Extract official letter number if present in subject (e.g. "593 صادر")
-      const numMatch = subject.match(/\b(\d{2,6})\b/);
-      const refNum = numMatch ? `بريد-${numMatch[1]}` : `EMAIL-${Date.now().toString().slice(-4)}`;
-
-      // Create Task in D1
-      const taskId = generateId('tsk');
       const year = new Date().getFullYear();
-      const countRow = await db
-        .prepare('SELECT COUNT(*) as count FROM tasks WHERE task_number LIKE ?')
-        .bind(`TSK-${year}-%`)
-        .first<{ count: number }>();
-      const nextSeq = ((countRow?.count || 0) + 1).toString().padStart(3, '0');
-      const task_number = `TSK-${year}-${nextSeq}-${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
+      const emailRecordId = generateId('emlsync');
 
-      const formattedDescription = [
+      const formattedBodyText = [
         `📧 رسالة واردة عبر البريد الرسمي للمكتب الفني (${config.email_address})`,
         `• الراسل: ${senderName}${senderEmail ? ` <${senderEmail}>` : ''}`,
         `• وقت الاستلام: ${receivedAt.replace('T', ' ').slice(0, 16)}`,
@@ -805,86 +840,7 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
         fullBodyText || '(لا يوجد نص إضافي بالرسالة — يرجى مراجعة المرفقات)',
       ].join('\n');
 
-      const assignedByLabel = senderEmail
-        ? `بريد إلكتروني: ${senderName}`
-        : `بريد إلكتروني وارد`;
-
-      await db
-        .prepare(
-          `INSERT INTO tasks (
-            id, task_number, title, description, task_type, department_id,
-            assigned_by, assigned_to, priority, status, start_date, due_date,
-            progress, reference_number, notes, is_archived, created_at, updated_at
-          ) VALUES (
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, 'new', ?, ?,
-            0, ?, ?, 0, DATETIME('now'), DATETIME('now')
-          )`
-        )
-        .bind(
-          taskId,
-          task_number,
-          subject,
-          formattedDescription,
-          taskType || config.default_task_type || 'تكليف إداري',
-          departmentId,
-          assignedByLabel,
-          config.default_assigned_to || 'د. ماجد عاطف',
-          finalPriority,
-          receivedDateStr,
-          dueDateStr,
-          refNum,
-          `تم السحب التلقائي من البريد الرسمي: ${senderEmail || senderName}`
-        )
-        .run();
-
-      // Add task creation history
-      await db
-        .prepare('INSERT INTO task_history (id, task_id, user_id, action, details) VALUES (?, ?, ?, ?, ?)')
-        .bind(
-          generateId('hist'),
-          taskId,
-          null,
-          'created_from_email',
-          `تم سحب المهمة تلقائياً من البريد الإلكتروني الرسمي (${senderEmail || senderName})`
-        )
-        .run();
-
-      // Also register in Correspondences (سجل المراسلات الواردة) linked to the task
-      const corrId = generateId('corr');
-      const corrRegNumber = `IN-MAIL-${year}-${Date.now().toString().slice(-4)}-${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
-      await db
-        .prepare(
-          `INSERT INTO correspondences (
-            id, reg_number, official_letter_number, letter_date, date_received_or_sent,
-            letter_type, sender, recipient, subject, summary, required_action,
-            department_id, assigned_to, reply_due_date, status, linked_task_id, notes,
-            created_at, updated_at
-          ) VALUES (
-            ?, ?, ?, ?, ?,
-            'وارد', ?, 'المكتب الفني لمدير الفرع', ?, ?, 'فحص واتخاذ اللازم',
-            ?, ?, ?, 'transferred_to_task', ?, ?,
-            DATETIME('now'), DATETIME('now')
-          )`
-        )
-        .bind(
-          corrId,
-          corrRegNumber,
-          numMatch ? numMatch[1] : null,
-          receivedDateStr,
-          receivedDateStr,
-          `${senderName}${senderEmail ? ` (${senderEmail})` : ''}`,
-          subject,
-          fullBodyText.slice(0, 500),
-          departmentId,
-          config.default_assigned_to || 'د. ماجد عاطف',
-          dueDateStr,
-          taskId,
-          `واردة عبر البريد الرسمي ${config.email_address}`
-        )
-        .run();
-
-      // Download and save any file attachments into R2 + attachments table
+      // Download and save any file attachments into R2 + attachments table linked directly to emailRecordId
       let savedAttsForThisEmail = 0;
       for (const att of itemAttachments) {
         try {
@@ -925,14 +881,14 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
                   file_key, file_size, mime_type, title, category,
                   department_id, doc_date, description, keywords, uploaded_by, created_at
                 ) VALUES (
-                  ?, 'task', ?, ?, ?,
+                  ?, 'email', ?, ?, ?,
                   ?, ?, ?, ?, 'خطابات رسمية',
                   ?, ?, ?, ?, 'البريد الإلكتروني الرسمي', DATETIME('now')
                 )`
               )
               .bind(
                 docId,
-                taskId,
+                emailRecordId,
                 docRefNum,
                 fileName,
                 fileKey,
@@ -954,29 +910,32 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
         }
       }
 
-      // Record in synced_emails
+      // Record standalone email in synced_emails (completely separate from tasks & correspondences)
       await db
         .prepare(
-          `INSERT OR REPLACE INTO synced_emails (
+          `INSERT INTO synced_emails (
             id, message_id, ews_item_id, subject, sender_name, sender_email,
-            received_at, task_id, correspondence_id, attachments_count, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'))`
+            received_at, body_text, status, priority, department_id, assigned_to,
+            task_id, correspondence_id, attachments_count, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, NULL, NULL, ?, DATETIME('now'))`
         )
         .bind(
-          alreadySynced?.id || generateId('emlsync'),
+          emailRecordId,
           internetMsgId,
           ewsId,
           subject,
           senderName,
           senderEmail,
           receivedAt,
-          taskId,
-          corrId,
+          formattedBodyText,
+          finalPriority,
+          departmentId,
+          config.default_assigned_to || 'د. ماجد عاطف',
           savedAttsForThisEmail
         )
         .run();
 
-      // Create notification for the new email task
+      // Create notification for the new email
       await db
         .prepare(
           `INSERT INTO notifications (id, user_id, title, message, type, link_url, is_read, created_at)
@@ -984,17 +943,16 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
         )
         .bind(
           generateId('notif'),
-          `بريد وارد جديد تحول لمهمة: ${task_number}`,
+          `بريد رسمي وارد جديد`,
           `${subject.slice(0, 120)} (من: ${senderName})`,
           finalPriority === 'urgent_critical' ? 'urgent' : 'info',
-          `/tasks?taskId=${taskId}`
+          `/emails`
         )
         .run();
 
       importedCount++;
       importedTasks.push({
-        taskId,
-        task_number,
+        emailId: emailRecordId,
         subject,
         senderName,
         senderEmail,
@@ -1042,7 +1000,7 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
   }
 }
 
-// GET /api/email/list (Full list of synced emails with filters & linked task/correspondence details)
+// GET /api/email/list (Full standalone list of synced emails with filters)
 emailSyncRoutes.get('/list', async (c) => {
   try {
     const db = c.env.DB;
@@ -1053,28 +1011,17 @@ emailSyncRoutes.get('/list', async (c) => {
     let query = `
       SELECT
         s.*,
-        t.task_number,
-        t.title as task_title,
-        t.description as task_description,
-        t.status as task_status,
-        t.priority as task_priority,
-        t.assigned_to as task_assigned_to,
-        t.due_date as task_due_date,
-        t.department_id as task_department_id,
-        d.name as department_name,
-        c.reg_number as correspondence_reg_number
+        d.name as department_name
       FROM synced_emails s
-      LEFT JOIN tasks t ON s.task_id = t.id AND t.deleted_at IS NULL
-      LEFT JOIN departments d ON t.department_id = d.id
-      LEFT JOIN correspondences c ON s.correspondence_id = c.id
+      LEFT JOIN departments d ON s.department_id = d.id
       WHERE 1=1
     `;
     const params: any[] = [];
 
     if (search && search.trim()) {
       const q = `%${search.trim()}%`;
-      query += ` AND (s.subject LIKE ? OR s.sender_name LIKE ? OR s.sender_email LIKE ? OR t.task_number LIKE ? OR t.description LIKE ?)`;
-      params.push(q, q, q, q, q);
+      query += ` AND (s.subject LIKE ? OR s.sender_name LIKE ? OR s.sender_email LIKE ? OR s.body_text LIKE ?)`;
+      params.push(q, q, q, q);
     }
 
     if (date && date.trim()) {
@@ -1092,17 +1039,17 @@ emailSyncRoutes.get('/list', async (c) => {
     }
 
     if (status && status.trim()) {
-      query += ` AND t.status = ?`;
+      query += ` AND s.status = ?`;
       params.push(status.trim());
     }
 
     if (priority && priority.trim()) {
-      query += ` AND t.priority = ?`;
+      query += ` AND s.priority = ?`;
       params.push(priority.trim());
     }
 
     if (department_id && department_id.trim()) {
-      query += ` AND t.department_id = ?`;
+      query += ` AND s.department_id = ?`;
       params.push(department_id.trim());
     }
 
@@ -1116,6 +1063,91 @@ emailSyncRoutes.get('/list', async (c) => {
       emails,
       config,
     });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+// GET /api/email/item/:id (Single standalone email with its attachments)
+emailSyncRoutes.get('/item/:id', async (c) => {
+  try {
+    const db = c.env.DB;
+    await ensureEmailSchema(db);
+    const id = c.req.param('id');
+
+    const email = await db
+      .prepare(
+        `SELECT s.*, d.name as department_name
+         FROM synced_emails s
+         LEFT JOIN departments d ON s.department_id = d.id
+         WHERE s.id = ?`
+      )
+      .bind(id)
+      .first<any>();
+
+    if (!email) {
+      return c.json({ success: false, error: 'الإيميل غير موجود' }, 404);
+    }
+
+    const attachments = (
+      await db
+        .prepare('SELECT * FROM attachments WHERE reference_id = ? ORDER BY created_at DESC')
+        .bind(id)
+        .all()
+    ).results;
+
+    return c.json({
+      success: true,
+      email,
+      attachments,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+// PUT /api/email/item/:id (Update standalone email status, priority, department, or notes)
+emailSyncRoutes.put('/item/:id', async (c) => {
+  try {
+    const db = c.env.DB;
+    await ensureEmailSchema(db);
+    const id = c.req.param('id');
+    const body = await c.req.json();
+
+    await db
+      .prepare(
+        `UPDATE synced_emails SET
+          status = COALESCE(?, status),
+          priority = COALESCE(?, priority),
+          department_id = COALESCE(?, department_id),
+          assigned_to = COALESCE(?, assigned_to),
+          notes = COALESCE(?, notes)
+         WHERE id = ?`
+      )
+      .bind(
+        body.status || null,
+        body.priority || null,
+        body.department_id !== undefined ? body.department_id : null,
+        body.assigned_to !== undefined ? body.assigned_to : null,
+        body.notes !== undefined ? body.notes : null,
+        id
+      )
+      .run();
+
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+// DELETE /api/email/item/:id
+emailSyncRoutes.delete('/item/:id', async (c) => {
+  try {
+    const db = c.env.DB;
+    const id = c.req.param('id');
+    await db.prepare('DELETE FROM attachments WHERE reference_id = ?').bind(id).run();
+    await db.prepare('DELETE FROM synced_emails WHERE id = ?').bind(id).run();
+    return c.json({ success: true });
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 500);
   }
