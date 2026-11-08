@@ -110,7 +110,9 @@ export const EmailsPage: React.FC = () => {
       );
       if (res.success) {
         let list = res.emails || [];
-        if (activeTab === 'attachments') {
+        if (activeTab === 'all') {
+          list = list.filter((e) => e.status !== 'replied');
+        } else if (activeTab === 'attachments') {
           list = list.filter((e) => (e.attachments_count || 0) > 0);
         }
         setEmails(list);
@@ -197,10 +199,18 @@ export const EmailsPage: React.FC = () => {
         method: 'PUT',
         body: JSON.stringify({ status: newStatus }),
       });
-      toast.success(newStatus === 'replied' ? 'تم تحديث حالة الإيميل إلى: تم الرد' : 'تم تحديث حالة الإيميل إلى: معلق');
+      toast.success(
+        newStatus === 'replied'
+          ? 'تم نقل الإيميل إلى تبويب (تم الرد)'
+          : 'تم تحديث حالة الإيميل إلى: معلق'
+      );
       loadEmails();
       if (selectedEmail?.id === emailId) {
-        setSelectedEmail((prev) => (prev ? { ...prev, status: newStatus } : null));
+        if (newStatus === 'replied' && activeTab === 'all') {
+          setSelectedEmail(null);
+        } else {
+          setSelectedEmail((prev) => (prev ? { ...prev, status: newStatus } : null));
+        }
       }
     } catch (e: any) {
       toast.error(e.message || 'تعذر تحديث الحالة');
