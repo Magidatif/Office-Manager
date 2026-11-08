@@ -6,6 +6,7 @@ import { ToastProvider } from './context/ToastContext';
 import { MainLayout } from './components/layout/MainLayout';
 import { DashboardPage } from './pages/DashboardPage';
 import { TasksPage } from './pages/TasksPage';
+import { EmailsPage } from './pages/EmailsPage';
 import { DailyLogPage } from './pages/DailyLogPage';
 import { CorrespondencesPage } from './pages/CorrespondencesPage';
 import { MeetingsPage } from './pages/MeetingsPage';
@@ -54,6 +55,7 @@ export const App: React.FC = () => {
               >
                 <Route index element={<DashboardPage />} />
                 <Route path="tasks" element={<TasksPage />} />
+                <Route path="emails" element={<EmailsPage />} />
                 <Route path="daily-log" element={<DailyLogPage />} />
                 <Route path="correspondences" element={<CorrespondencesPage />} />
                 <Route path="meetings" element={<MeetingsPage />} />

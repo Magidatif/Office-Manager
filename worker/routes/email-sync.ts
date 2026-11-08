@@ -1042,6 +1042,85 @@ export async function syncEmailsToTasks(env: Env, options?: EmailSyncOptions) {
   }
 }
 
+// GET /api/email/list (Full list of synced emails with filters & linked task/correspondence details)
+emailSyncRoutes.get('/list', async (c) => {
+  try {
+    const db = c.env.DB;
+    await ensureEmailSchema(db);
+
+    const { search, date, from_date, to_date, status, priority, department_id } = c.req.query();
+
+    let query = `
+      SELECT
+        s.*,
+        t.task_number,
+        t.title as task_title,
+        t.description as task_description,
+        t.status as task_status,
+        t.priority as task_priority,
+        t.assigned_to as task_assigned_to,
+        t.due_date as task_due_date,
+        t.department_id as task_department_id,
+        d.name as department_name,
+        c.reg_number as correspondence_reg_number
+      FROM synced_emails s
+      LEFT JOIN tasks t ON s.task_id = t.id AND t.deleted_at IS NULL
+      LEFT JOIN departments d ON t.department_id = d.id
+      LEFT JOIN correspondences c ON s.correspondence_id = c.id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (search && search.trim()) {
+      const q = `%${search.trim()}%`;
+      query += ` AND (s.subject LIKE ? OR s.sender_name LIKE ? OR s.sender_email LIKE ? OR t.task_number LIKE ? OR t.description LIKE ?)`;
+      params.push(q, q, q, q, q);
+    }
+
+    if (date && date.trim()) {
+      query += ` AND SUBSTR(s.received_at, 1, 10) = ?`;
+      params.push(date.trim());
+    } else {
+      if (from_date && from_date.trim()) {
+        query += ` AND SUBSTR(s.received_at, 1, 10) >= ?`;
+        params.push(from_date.trim());
+      }
+      if (to_date && to_date.trim()) {
+        query += ` AND SUBSTR(s.received_at, 1, 10) <= ?`;
+        params.push(to_date.trim());
+      }
+    }
+
+    if (status && status.trim()) {
+      query += ` AND t.status = ?`;
+      params.push(status.trim());
+    }
+
+    if (priority && priority.trim()) {
+      query += ` AND t.priority = ?`;
+      params.push(priority.trim());
+    }
+
+    if (department_id && department_id.trim()) {
+      query += ` AND t.department_id = ?`;
+      params.push(department_id.trim());
+    }
+
+    query += ` ORDER BY s.received_at DESC, s.created_at DESC LIMIT 250`;
+
+    const emails = (await db.prepare(query).bind(...params).all()).results;
+    const config = await db.prepare('SELECT email_address, last_sync_at, last_sync_status, total_synced_count FROM email_config LIMIT 1').first();
+
+    return c.json({
+      success: true,
+      emails,
+      config,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
 // GET /api/email/config
 emailSyncRoutes.get('/config', async (c) => {
   try {

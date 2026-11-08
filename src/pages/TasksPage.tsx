@@ -45,7 +45,7 @@ export const TasksPage: React.FC = () => {
   const [syncTargetDate, setSyncTargetDate] = useState<string>('');
 
   // Filters
-  const [activeTab, setActiveTab] = useState<'all' | 'mine' | 'today' | 'overdue' | 'urgent' | 'completed' | 'archived'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'emails' | 'mine' | 'today' | 'overdue' | 'urgent' | 'completed' | 'archived'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('');
   const [selectedSource, setSelectedSource] = useState('');
@@ -138,6 +138,9 @@ export const TasksPage: React.FC = () => {
       setLoading(true);
       const params = new URLSearchParams();
 
+      if (activeTab === 'emails') params.append('from_email', '1');
+      else if (activeTab === 'all') params.append('from_email', '0');
+
       if (activeTab === 'mine' && user?.full_name) params.append('assigned_to', user.full_name);
       if (activeTab === 'today') params.append('today', '1');
       if (activeTab === 'overdue') params.append('overdue', '1');
@@ -183,9 +186,11 @@ export const TasksPage: React.FC = () => {
     const paramToday = searchParams.get('today');
     const paramPriority = searchParams.get('priority');
     const paramStatus = searchParams.get('status');
+    const paramTab = searchParams.get('tab');
     const paramTaskId = searchParams.get('taskId');
 
-    if (paramOverdue === '1') setActiveTab('overdue');
+    if (paramTab === 'emails') setActiveTab('emails');
+    else if (paramOverdue === '1') setActiveTab('overdue');
     else if (paramToday === '1') setActiveTab('today');
     else if (paramPriority === 'urgent_critical') setActiveTab('urgent');
     else if (paramStatus === 'completed') setActiveTab('completed');
@@ -374,6 +379,7 @@ export const TasksPage: React.FC = () => {
               ? `تم سحب وتحويل ${res.importedCount} بريد إلكتروني ليوم (${syncTargetDate}) إلى مهام بنجاح (مع ${res.attachmentsSavedCount} مرفق)!`
               : `تم سحب وتحويل ${res.importedCount} بريد إلكتروني إلى مهام بنجاح (مع ${res.attachmentsSavedCount} مرفق)!`
           );
+          setActiveTab('emails');
         } else {
           toast.info(
             syncTargetDate
@@ -382,6 +388,7 @@ export const TasksPage: React.FC = () => {
                 : `لا توجد رسائل واردة على البريد الرسمي في يوم (${syncTargetDate})`
               : `البريد محدّث بالكامل — لا توجد رسائل جديدة غير مسحوبة (${res.email})`
           );
+          setActiveTab('emails');
         }
         loadTasks();
       }
@@ -488,7 +495,8 @@ export const TasksPage: React.FC = () => {
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px">
         {[
-          { key: 'all', label: 'جميع المهام', icon: ListTodo },
+          { key: 'all', label: 'المهام الداخلية', icon: ListTodo },
+          { key: 'emails', label: 'إيميلات البريد الرسمي', icon: Mail },
           { key: 'mine', label: 'مهامي الشخصية', icon: UserCheck },
           { key: 'today', label: 'مهام اليوم', icon: Calendar },
           { key: 'overdue', label: 'المهام المتأخرة', icon: AlertTriangle, countColor: 'text-red-600' },

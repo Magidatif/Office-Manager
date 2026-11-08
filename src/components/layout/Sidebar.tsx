@@ -14,6 +14,7 @@ import {
   X,
   Building2,
   BookmarkCheck,
+  Inbox,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -24,6 +25,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const navItems = [
     { to: '/', label: 'لوحة التحكم', icon: LayoutDashboard },
+    { to: '/emails', label: 'الإيميلات الواردة (البريد)', icon: Inbox },
     { to: '/tasks', label: 'إدارة المهام اليومية', icon: CheckSquare },
     { to: '/daily-log', label: 'سجل الأعمال اليومية', icon: ClipboardList },
     { to: '/correspondences', label: 'المخاطبات والمراسلات', icon: Mail },

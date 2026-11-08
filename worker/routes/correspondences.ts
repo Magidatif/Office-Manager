@@ -18,6 +18,7 @@ correspondenceRoutes.get('/', async (c) => {
       search,
       sender,
       recipient,
+      from_email,
       page = '1',
       limit = '50',
     } = c.req.query();
@@ -59,6 +60,12 @@ correspondenceRoutes.get('/', async (c) => {
     if (search) {
       query += ` AND (c.reg_number LIKE ? OR c.official_letter_number LIKE ? OR c.subject LIKE ? OR c.summary LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    if (from_email === '1' || from_email === 'true') {
+      query += ` AND (c.reg_number LIKE 'IN-MAIL-%' OR c.notes LIKE 'واردة عبر البريد الرسمي%' OR EXISTS (SELECT 1 FROM synced_emails se WHERE se.correspondence_id = c.id))`;
+    } else if (from_email === '0' || from_email === 'false') {
+      query += ` AND NOT (c.reg_number LIKE 'IN-MAIL-%' OR c.notes LIKE 'واردة عبر البريد الرسمي%' OR EXISTS (SELECT 1 FROM synced_emails se WHERE se.correspondence_id = c.id))`;
     }
 
     query += ` ORDER BY c.date_received_or_sent DESC, c.created_at DESC LIMIT ? OFFSET ?`;

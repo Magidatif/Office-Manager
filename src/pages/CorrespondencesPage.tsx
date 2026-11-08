@@ -29,6 +29,7 @@ export const CorrespondencesPage: React.FC = () => {
   const [searchParams] = useSearchParams();
 
   // Filters
+  const [activeTab, setActiveTab] = useState<'internal' | 'emails' | 'all'>('internal');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -66,7 +67,6 @@ export const CorrespondencesPage: React.FC = () => {
               ? `تم قيد ${res.importedCount} مكاتبة واردة ليوم (${syncTargetDate}) وتحويلها لمهام مع ${res.attachmentsSavedCount} مرفق`
               : `تم قيد ${res.importedCount} مكاتبة واردة جديدة وتحويلها لمهام مع ${res.attachmentsSavedCount} مرفق`
           );
-          loadData();
         } else {
           toast.info(
             syncTargetDate
@@ -76,6 +76,8 @@ export const CorrespondencesPage: React.FC = () => {
               : 'سجل المراسلات محدّث — لا توجد رسائل بريد جديدة غير مسحوبة'
           );
         }
+        setActiveTab('emails');
+        loadData();
       }
     } catch (err: any) {
       toast.error(err.message || 'فشل سحب البريد الإلكتروني');
@@ -106,6 +108,9 @@ export const CorrespondencesPage: React.FC = () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
+      if (activeTab === 'emails') params.append('from_email', '1');
+      else if (activeTab === 'internal') params.append('from_email', '0');
+
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
       if (selectedType) params.append('letter_type', selectedType);
       if (selectedStatus) params.append('status', selectedStatus);
@@ -158,7 +163,7 @@ export const CorrespondencesPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [selectedType, selectedStatus, selectedDept]);
+  }, [activeTab, selectedType, selectedStatus, selectedDept]);
 
   const openEditModal = (corr: Correspondence, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -319,6 +324,31 @@ export const CorrespondencesPage: React.FC = () => {
             قيد مخاطبة جديدة
           </button>
         </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px">
+        {[
+          { key: 'internal', label: 'المراسلات والمخاطبات المسجلة', icon: Sparkles },
+          { key: 'emails', label: 'إيميلات البريد الرسمي', icon: Mail },
+          { key: 'all', label: 'الكل', icon: Search },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key as any)}
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 whitespace-nowrap transition-all ${
+                activeTab === tab.key
+                  ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Filter Bar */}

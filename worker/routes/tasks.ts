@@ -21,6 +21,7 @@ taskRoutes.get('/', async (c) => {
       search,
       overdue,
       today,
+      from_email,
       page = '1',
       limit = '50',
     } = c.req.query();
@@ -134,6 +135,12 @@ taskRoutes.get('/', async (c) => {
       params.push(todayStr, todayStr, todayStr);
     }
 
+    if (from_email === '1' || from_email === 'true') {
+      query += ` AND (t.assigned_by LIKE 'بريد إلكتروني%' OR t.notes LIKE 'تم السحب التلقائي من البريد الرسمي%' OR EXISTS (SELECT 1 FROM synced_emails se WHERE se.task_id = t.id))`;
+    } else if (from_email === '0' || from_email === 'false') {
+      query += ` AND NOT (t.assigned_by LIKE 'بريد إلكتروني%' OR t.notes LIKE 'تم السحب التلقائي من البريد الرسمي%' OR EXISTS (SELECT 1 FROM synced_emails se WHERE se.task_id = t.id))`;
+    }
+
     query += ` ORDER BY ${orderClause} LIMIT ? OFFSET ?`;
 
     const pageNum = Math.max(1, parseInt(page, 10));
@@ -171,6 +178,11 @@ taskRoutes.get('/', async (c) => {
     if (search) {
       countQuery += ` AND (t.title LIKE ? OR t.description LIKE ? OR t.task_number LIKE ?)`;
       countParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (from_email === '1' || from_email === 'true') {
+      countQuery += ` AND (t.assigned_by LIKE 'بريد إلكتروني%' OR t.notes LIKE 'تم السحب التلقائي من البريد الرسمي%' OR EXISTS (SELECT 1 FROM synced_emails se WHERE se.task_id = t.id))`;
+    } else if (from_email === '0' || from_email === 'false') {
+      countQuery += ` AND NOT (t.assigned_by LIKE 'بريد إلكتروني%' OR t.notes LIKE 'تم السحب التلقائي من البريد الرسمي%' OR EXISTS (SELECT 1 FROM synced_emails se WHERE se.task_id = t.id))`;
     }
 
     const countRes = await db.prepare(countQuery).bind(...countParams).first<{ total: number }>();
