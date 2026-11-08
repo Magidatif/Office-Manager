@@ -27,6 +27,11 @@ taskRoutes.get('/', async (c) => {
 
     const todayStr = new Date().toISOString().split('T')[0];
 
+    // Ensure completed tasks are kept in the 'completed' tab (not in archive) unless explicitly archived
+    await db
+      .prepare("UPDATE tasks SET is_archived = 0 WHERE status = 'completed' AND is_archived = 1 AND deleted_at IS NULL")
+      .run();
+
     let query = `
       SELECT t.*, d.name as department_name,
         (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id) as subtasks_total,
@@ -89,6 +94,9 @@ taskRoutes.get('/', async (c) => {
     if (status) {
       query += ` AND t.status = ?`;
       params.push(status);
+    } else if (is_archived !== '1') {
+      // Automatically move completed tasks out of active tabs into the 'completed' tab
+      query += ` AND t.status != 'completed'`;
     }
 
     if (priority) {
@@ -149,6 +157,8 @@ taskRoutes.get('/', async (c) => {
     if (status) {
       countQuery += ` AND t.status = ?`;
       countParams.push(status);
+    } else if (is_archived !== '1') {
+      countQuery += ` AND t.status != 'completed'`;
     }
     if (priority) {
       countQuery += ` AND t.priority = ?`;
@@ -275,18 +285,21 @@ taskRoutes.post('/', async (c) => {
     const nextSeq = ((countRow?.count || 0) + 1).toString().padStart(3, '0');
     const task_number = body.task_number || `TSK-${year}-${nextSeq}`;
 
+    const isCompleted = body.status === 'completed';
+    const isArchived = body.is_archived ? 1 : 0;
+
     await db
       .prepare(
         `INSERT INTO tasks (
           id, task_number, title, description, task_type, department_id,
           assigned_by, assigned_to, priority, status, start_date, due_date,
-          progress, reference_number, notes, follow_up_date, recurrence, recurrence_rule,
-          created_at, updated_at
+          completion_date, progress, reference_number, notes, follow_up_date, recurrence, recurrence_rule,
+          is_archived, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, ?, ?,
-          DATETIME('now'), DATETIME('now')
+          ?, ?, ?, ?, ?, ?, ?,
+          ?, DATETIME('now'), DATETIME('now')
         )`
       )
       .bind(
@@ -302,12 +315,14 @@ taskRoutes.post('/', async (c) => {
         body.status || 'new',
         body.start_date || new Date().toISOString().split('T')[0],
         body.due_date || null,
-        body.progress || 0,
+        isCompleted ? new Date().toISOString() : null,
+        isCompleted ? 100 : (body.progress || 0),
         body.reference_number || null,
         body.notes || null,
         body.follow_up_date || null,
         body.recurrence || 'none',
-        body.recurrence_rule || null
+        body.recurrence_rule || null,
+        isArchived
       )
       .run();
 
@@ -395,6 +410,9 @@ taskRoutes.put('/:id', async (c) => {
         .run();
     }
 
+    const nextStatus = body.status !== undefined ? body.status : existing.status;
+    const nextArchived = body.is_archived !== undefined ? (body.is_archived ? 1 : 0) : existing.is_archived;
+
     await db
       .prepare(
         `UPDATE tasks SET
@@ -414,7 +432,7 @@ taskRoutes.put('/:id', async (c) => {
         body.assigned_by !== undefined ? body.assigned_by : existing.assigned_by,
         body.assigned_to !== undefined ? body.assigned_to : existing.assigned_to,
         body.priority !== undefined ? body.priority : existing.priority,
-        body.status !== undefined ? body.status : existing.status,
+        nextStatus,
         body.start_date !== undefined ? body.start_date : existing.start_date,
         body.due_date !== undefined ? body.due_date : existing.due_date,
         completion_date,
@@ -425,7 +443,7 @@ taskRoutes.put('/:id', async (c) => {
         body.recurrence !== undefined ? body.recurrence : existing.recurrence,
         postponed_count,
         postpone_reason,
-        body.is_archived !== undefined ? (body.is_archived ? 1 : 0) : existing.is_archived,
+        nextArchived,
         id
       )
       .run();
@@ -450,7 +468,6 @@ taskRoutes.post('/:id/status', async (c) => {
     if (!task) return c.json({ success: false, error: 'المهمة غير موجودة' }, 404);
 
     const newProgress = progress !== undefined ? progress : (status === 'completed' ? 100 : task.progress);
-    const completion_date = status === 'completed' ? new Date().toISOString() : null;
 
     await db
       .prepare(

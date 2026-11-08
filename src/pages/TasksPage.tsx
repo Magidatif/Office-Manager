@@ -238,7 +238,11 @@ export const TasksPage: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ status: newStatus, progress }),
       });
-      toast.success('تم تحديث حالة المهمة');
+      toast.success(
+        newStatus === 'completed'
+          ? 'تم اكتمال المهمة ونقلها إلى قائمة المهام المكتملة تلقائياً'
+          : 'تم إعادة فتح المهمة وإعادتها للمهام النشطة'
+      );
       loadTasks();
       if (selectedTask?.id === taskId) openTaskDetails(taskId);
     } catch (e: any) {
