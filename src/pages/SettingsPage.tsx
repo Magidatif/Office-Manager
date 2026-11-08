@@ -49,13 +49,13 @@ export const SettingsPage: React.FC = () => {
   const [newUsername, setNewUsername] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserJobTitle, setNewUserJobTitle] = useState('عضو المكتب الفني لمدير الفرع');
-  const [newUserRole, setNewUserRole] = useState<'admin' | 'director' | 'officer' | 'viewer'>('officer');
+  const [newUserRole, setNewUserRole] = useState<'admin' | 'director' | 'deputy_director' | 'officer' | 'viewer'>('officer');
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editingUserData, setEditingUserData] = useState<{
     full_name: string;
     username: string;
     job_title: string;
-    role: 'admin' | 'director' | 'officer' | 'viewer';
+    role: 'admin' | 'director' | 'deputy_director' | 'officer' | 'viewer';
     password?: string;
   }>({ full_name: '', username: '', job_title: '', role: 'officer', password: '' });
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
@@ -344,6 +344,8 @@ export const SettingsPage: React.FC = () => {
               ? 'مدير النظام (Admin)'
               : user?.role === 'director'
               ? 'مدير عام الفرع'
+              : user?.role === 'deputy_director'
+              ? 'نائب مدير الفرع'
               : user?.role === 'officer'
               ? 'عضو المكتب الفني'
               : 'متابع / مطلع'}
@@ -390,11 +392,12 @@ export const SettingsPage: React.FC = () => {
               />
               <select
                 value={newUserRole}
-                onChange={(e) => setNewUserRole(e.target.value as 'admin' | 'director' | 'officer' | 'viewer')}
+                onChange={(e) => setNewUserRole(e.target.value as 'admin' | 'director' | 'deputy_director' | 'officer' | 'viewer')}
                 className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               >
                 <option value="officer">عضو المكتب الفني</option>
                 <option value="director">مدير عام الفرع</option>
+                <option value="deputy_director">نائب مدير الفرع</option>
                 <option value="admin">مدير النظام (Admin)</option>
                 <option value="viewer">متابع / استعراض فقط</option>
               </select>
@@ -446,6 +449,7 @@ export const SettingsPage: React.FC = () => {
                     >
                       <option value="officer">عضو المكتب الفني</option>
                       <option value="director">مدير عام الفرع</option>
+                      <option value="deputy_director">نائب مدير الفرع</option>
                       <option value="admin">مدير النظام (Admin)</option>
                       <option value="viewer">متابع فقط</option>
                     </select>
@@ -505,6 +509,8 @@ export const SettingsPage: React.FC = () => {
                           ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300'
                           : u.role === 'director'
                           ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                          : u.role === 'deputy_director'
+                          ? 'bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'
                           : u.role === 'officer'
                           ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
                           : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
@@ -514,6 +520,8 @@ export const SettingsPage: React.FC = () => {
                         ? 'مدير النظام (Admin)'
                         : u.role === 'director'
                         ? 'مدير عام الفرع'
+                        : u.role === 'deputy_director'
+                        ? 'نائب مدير الفرع'
                         : u.role === 'officer'
                         ? 'عضو المكتب الفني'
                         : 'متابع فقط'}
@@ -856,11 +864,13 @@ export const SettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Danger Zone: Wipe All Data (Admin & Branch Director Only) */}
+      {/* Danger Zone: Wipe All Data (Admin, Branch Director & Deputy Director Only) */}
       {(user?.role === 'admin' ||
         user?.role === 'director' ||
+        user?.role === 'deputy_director' ||
         user?.job_title?.includes('مدير عام') ||
-        user?.job_title?.includes('مدير الفرع')) && (
+        user?.job_title?.includes('مدير الفرع') ||
+        user?.job_title?.includes('نائب مدير')) && (
         <div className="p-6 rounded-2xl bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 shadow-2xs space-y-3">
           <h3 className="text-sm font-bold text-red-700 dark:text-red-400 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-red-600" />

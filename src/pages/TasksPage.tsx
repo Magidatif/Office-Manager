@@ -96,7 +96,9 @@ export const TasksPage: React.FC = () => {
         const technicalOfficeMembers = usrRes.users.filter(
           (u) =>
             u.role !== 'director' &&
+            u.role !== 'deputy_director' &&
             !u.job_title?.includes('مدير عام') &&
+            !u.job_title?.includes('نائب مدير') &&
             u.job_title?.trim() !== 'مدير الفرع'
         );
         setTeamUsers(technicalOfficeMembers);
@@ -536,7 +538,6 @@ export const TasksPage: React.FC = () => {
                   <th className="py-3 px-4 font-bold">الأولوية</th>
                   <th className="py-3 px-4 font-bold">الحالة</th>
                   <th className="py-3 px-4 font-bold">الموعد النهائي</th>
-                  <th className="py-3 px-4 font-bold">نسبة الإنجاز</th>
                   <th className="py-3 px-4 font-bold text-center">إجراءات</th>
                 </tr>
               </thead>
@@ -591,20 +592,6 @@ export const TasksPage: React.FC = () => {
                       ) : (
                         <span className="text-slate-400">غير محدد</span>
                       )}
-                    </td>
-
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-emerald-600 rounded-full transition-all"
-                            style={{ width: `${task.progress}%` }}
-                          />
-                        </div>
-                        <span className="font-bold text-slate-700 dark:text-slate-300">
-                          {task.progress}%
-                        </span>
-                      </div>
                     </td>
 
                     <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>

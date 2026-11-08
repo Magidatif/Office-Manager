@@ -30,12 +30,15 @@ settingsRoutes.get('/', async (c) => {
       settings = await db.prepare('SELECT * FROM user_settings WHERE id = ?').bind(id).first();
     }
 
-    // Ensure Magid / admin is always admin and Dr. Ahmed is director
+    // Ensure Magid / admin is always admin, Dr. Ahmed is director, and Deputy Director has deputy_director role
     await db
       .prepare("UPDATE users SET role = 'admin' WHERE LOWER(username) IN ('magid', 'admin') OR full_name LIKE '%ماجد%' OR id = 'usr-admin-01'")
       .run();
     await db
-      .prepare("UPDATE users SET role = 'director' WHERE (LOWER(username) LIKE '%ahmed%' OR job_title LIKE '%مدير عام%' OR job_title LIKE '%مدير الفرع%') AND job_title NOT LIKE '%المكتب%' AND LOWER(username) NOT IN ('magid', 'admin')")
+      .prepare("UPDATE users SET role = 'deputy_director' WHERE job_title LIKE '%نائب مدير%' AND LOWER(username) NOT IN ('magid', 'admin')")
+      .run();
+    await db
+      .prepare("UPDATE users SET role = 'director' WHERE (LOWER(username) LIKE '%ahmed%' OR job_title LIKE '%مدير عام%' OR job_title LIKE '%مدير الفرع%') AND job_title NOT LIKE '%نائب%' AND job_title NOT LIKE '%المكتب%' AND LOWER(username) NOT IN ('magid', 'admin')")
       .run();
 
     const departments = (await db.prepare('SELECT * FROM departments ORDER BY display_order ASC').all()).results;
@@ -159,10 +162,13 @@ settingsRoutes.post('/reset-all-data', async (c) => {
     const isAllowed =
       dbUser?.role === 'admin' ||
       dbUser?.role === 'director' ||
+      dbUser?.role === 'deputy_director' ||
       user.role === 'admin' ||
       user.role === 'director' ||
+      user.role === 'deputy_director' ||
       dbUser?.job_title?.includes('مدير عام') ||
-      dbUser?.job_title?.includes('مدير الفرع');
+      dbUser?.job_title?.includes('مدير الفرع') ||
+      dbUser?.job_title?.includes('نائب مدير');
 
     if (!isAllowed) {
       return c.json({ success: false, error: 'غير مصرح: هذه العملية مخصصة فقط لمدير النظام ومدير عام الفرع' }, 403);
@@ -584,7 +590,7 @@ settingsRoutes.post('/users', async (c) => {
 
     const id = generateId('usr');
     const passwordHash = await hashPassword(password.trim());
-    const userRole = ['admin', 'director', 'officer', 'viewer'].includes(role) ? role : 'officer';
+    const userRole = ['admin', 'director', 'deputy_director', 'officer', 'viewer'].includes(role) ? role : 'officer';
 
     await db
       .prepare(

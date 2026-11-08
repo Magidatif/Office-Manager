@@ -58,7 +58,9 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
             const technicalOfficeMembers = res.users.filter(
               (u) =>
                 u.role !== 'director' &&
+                u.role !== 'deputy_director' &&
                 !u.job_title?.includes('مدير عام') &&
+                !u.job_title?.includes('نائب مدير') &&
                 u.job_title?.trim() !== 'مدير الفرع'
             );
             setTeamUsers(technicalOfficeMembers);

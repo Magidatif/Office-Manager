@@ -15,7 +15,7 @@ export interface User {
   username: string;
   full_name: string;
   job_title: string;
-  role: 'admin' | 'director' | 'officer' | 'viewer';
+  role: 'admin' | 'director' | 'deputy_director' | 'officer' | 'viewer';
 }
 
 export interface Department {
