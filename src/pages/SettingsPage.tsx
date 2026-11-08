@@ -19,6 +19,11 @@ import {
   Users,
   Shield,
   UserPlus,
+  Mail,
+  RefreshCw,
+  CheckCircle2,
+  Paperclip,
+  Calendar,
 } from 'lucide-react';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 
@@ -72,6 +77,43 @@ export const SettingsPage: React.FC = () => {
   const [resetPassword, setResetPassword] = useState('');
   const [resetting, setResetting] = useState(false);
 
+  // Official Email Sync state
+  const [emailConfig, setEmailConfig] = useState<any>({
+    email_address: 'technicaloffice.luxor@eha.gov.eg',
+    password: 'P@ssw0rdP@ssw0rd15',
+    owa_url: 'https://mail.egcloud.gov.eg/owa/',
+    default_assigned_to: 'د. ماجد عاطف',
+    default_task_type: 'تكليف إداري',
+    default_priority: 'high',
+    max_emails_per_sync: 25,
+    only_unread: 0,
+    is_enabled: 1,
+    last_sync_at: null,
+    last_sync_status: null,
+    last_sync_error: null,
+    total_synced_count: 0,
+  });
+  const [recentSyncedEmails, setRecentSyncedEmails] = useState<any[]>([]);
+  const [savingEmailConfig, setSavingEmailConfig] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [syncingEmailNow, setSyncingEmailNow] = useState(false);
+  const [syncTargetDate, setSyncTargetDate] = useState<string>('');
+  const [syncFromDate, setSyncFromDate] = useState<string>('');
+  const [syncToDate, setSyncToDate] = useState<string>('');
+  const [syncMode, setSyncMode] = useState<'latest' | 'day' | 'range'>('day');
+
+  const loadEmailConfig = async () => {
+    try {
+      const res = await apiRequest<{ success: boolean; config: any; recentSynced: any[] }>('/email/config');
+      if (res.success) {
+        if (res.config) setEmailConfig(res.config);
+        if (res.recentSynced) setRecentSyncedEmails(res.recentSynced);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const loadSettings = async () => {
     try {
       const res = await apiRequest<{ success: boolean; settings: any; departments: Department[]; users?: User[] }>('/settings');
@@ -87,7 +129,99 @@ export const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     loadSettings();
+    loadEmailConfig();
   }, []);
+
+  const handleSaveEmailConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingEmailConfig(true);
+    try {
+      await apiRequest('/email/config', {
+        method: 'PUT',
+        body: JSON.stringify(emailConfig),
+      });
+      toast.success('تم حفظ إعدادات حساب البريد الإلكتروني الرسمي بنجاح');
+      loadEmailConfig();
+    } catch (err: any) {
+      toast.error(err.message || 'فشل حفظ إعدادات البريد');
+    } finally {
+      setSavingEmailConfig(false);
+    }
+  };
+
+  const handleTestEmailConnection = async () => {
+    setTestingEmail(true);
+    try {
+      const res = await apiRequest<{ success: boolean; message: string }>('/email/test', {
+        method: 'POST',
+        body: JSON.stringify({
+          email_address: emailConfig.email_address,
+          password: emailConfig.password,
+          owa_url: emailConfig.owa_url,
+        }),
+      });
+      if (res.success) {
+        toast.success(res.message);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'فشل الاتصال بخادم البريد');
+    } finally {
+      setTestingEmail(false);
+    }
+  };
+
+  const handleSyncEmailNow = async (customOptions?: { targetDate?: string; fromDate?: string; toDate?: string }) => {
+    setSyncingEmailNow(true);
+    try {
+      const payload: any = {};
+      if (customOptions) {
+        if (customOptions.targetDate) payload.targetDate = customOptions.targetDate;
+        if (customOptions.fromDate) payload.fromDate = customOptions.fromDate;
+        if (customOptions.toDate) payload.toDate = customOptions.toDate;
+      } else if (syncMode === 'day' && syncTargetDate) {
+        payload.targetDate = syncTargetDate;
+      } else if (syncMode === 'range' && (syncFromDate || syncToDate)) {
+        if (syncFromDate) payload.fromDate = syncFromDate;
+        if (syncToDate) payload.toDate = syncToDate;
+      }
+
+      const labelDesc = payload.targetDate
+        ? `ليوم (${payload.targetDate})`
+        : payload.fromDate || payload.toDate
+        ? `للفترة (${payload.fromDate || 'البداية'} إلى ${payload.toDate || 'اليوم'})`
+        : '';
+
+      toast.info(`جاري الاتصال بخادم البريد الرسمي وسحب الرسائل ${labelDesc}...`);
+      const res = await apiRequest<{
+        success: boolean;
+        fetchedCount: number;
+        importedCount: number;
+        skippedCount: number;
+        attachmentsSavedCount: number;
+      }>('/email/sync', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (res.success) {
+        if (res.importedCount > 0) {
+          toast.success(
+            `اكتملت المزامنة ${labelDesc}: تم سحب ${res.importedCount} بريد جديد كمهام عمل، وحفظ ${res.attachmentsSavedCount} مرفق`
+          );
+        } else {
+          toast.info(
+            res.fetchedCount > 0
+              ? `تم فحص ${res.fetchedCount} رسالة ${labelDesc} — جميعها مسحوبة مسبقاً كمهام`
+              : `لا توجد رسائل واردة على البريد الرسمي ${labelDesc || 'جديدة حالياً'}`
+          );
+        }
+        loadEmailConfig();
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'حدث خطأ أثناء سحب البريد الإلكتروني');
+    } finally {
+      setSyncingEmailNow(false);
+    }
+  };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -321,8 +455,305 @@ export const SettingsPage: React.FC = () => {
           إعدادات النظام وتفضيلات العمل
         </h2>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          إدارة حسابات أعضاء المكتب الفني ومدير الفرع، الهيكل التنظيمي والإدارات، ساعات العمل، والنسخ الاحتياطي
+          إدارة حسابات أعضاء المكتب الفني ومدير الفرع، الربط مع البريد الرسمي، الهيكل التنظيمي والإدارات، ساعات العمل، والنسخ الاحتياطي
         </p>
+      </div>
+
+      {/* Official Email Integration Section */}
+      <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-sky-200/90 dark:border-sky-900/60 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <Mail className="w-4 h-4 text-sky-600" />
+              ربط البريد الإلكتروني الرسمي للمكتب الفني وسحب المهام تلقائياً
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              متصل بخادم البريد الحكومي الموحد (Exchange OWA / ADFS) لسحب الإيميلات الواردة وتحويلها مباشرة إلى مهام عمل ومراسلات بمرفقاتها
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleTestEmailConnection}
+              disabled={testingEmail || syncingEmailNow}
+              className="px-3 py-1.5 rounded-xl border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 text-xs font-bold hover:bg-sky-100 transition-colors flex items-center gap-1.5"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {testingEmail ? 'جاري الفحص...' : 'اختبار الاتصال'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSyncEmailNow({})}
+              disabled={syncingEmailNow || testingEmail}
+              className="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white text-xs font-bold shadow-sm transition-colors flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingEmailNow ? 'animate-spin' : ''}`} />
+              {syncingEmailNow ? 'جاري السحب...' : 'سحب أحدث الإيميلات الآن'}
+            </button>
+          </div>
+        </div>
+
+        {/* Sync By Specific Day / Date Range Box */}
+        <div className="p-3.5 rounded-xl bg-sky-50/60 dark:bg-sky-950/30 border border-sky-200/80 dark:border-sky-900/60 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+              <Calendar className="w-4 h-4 text-sky-600" />
+              <span>تحديد سحب الإيميلات باليوم أو لفترة محددة:</span>
+            </div>
+
+            <div className="flex items-center gap-1 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => setSyncMode('day')}
+                className={`px-2.5 py-1 rounded-lg transition-colors ${
+                  syncMode === 'day'
+                    ? 'bg-sky-600 text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                سحب يوم محدد
+              </button>
+              <button
+                type="button"
+                onClick={() => setSyncMode('range')}
+                className={`px-2.5 py-1 rounded-lg transition-colors ${
+                  syncMode === 'range'
+                    ? 'bg-sky-600 text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                فترة من / إلى
+              </button>
+            </div>
+          </div>
+
+          {syncMode === 'day' ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={syncingEmailNow}
+                onClick={() => {
+                  const today = new Date().toISOString().split('T')[0];
+                  setSyncTargetDate(today);
+                  handleSyncEmailNow({ targetDate: today });
+                }}
+                className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900/50 text-sky-700 dark:text-sky-300 text-xs font-bold transition-colors"
+              >
+                سحب إيميلات اليوم
+              </button>
+              <button
+                type="button"
+                disabled={syncingEmailNow}
+                onClick={() => {
+                  const d = new Date();
+                  d.setDate(d.getDate() - 1);
+                  const yesterday = d.toISOString().split('T')[0];
+                  setSyncTargetDate(yesterday);
+                  handleSyncEmailNow({ targetDate: yesterday });
+                }}
+                className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors"
+              >
+                سحب إيميلات أمس
+              </button>
+
+              <div className="flex items-center gap-1.5 mr-auto">
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">اختر اليوم:</span>
+                <input
+                  type="date"
+                  value={syncTargetDate}
+                  onChange={(e) => setSyncTargetDate(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={!syncTargetDate || syncingEmailNow}
+                  onClick={() => handleSyncEmailNow({ targetDate: syncTargetDate })}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncingEmailNow ? 'animate-spin' : ''}`} />
+                  <span>سحب هذا اليوم</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">من يوم:</span>
+                <input
+                  type="date"
+                  value={syncFromDate}
+                  onChange={(e) => setSyncFromDate(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">إلى يوم:</span>
+                <input
+                  type="date"
+                  value={syncToDate}
+                  onChange={(e) => setSyncToDate(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                />
+              </div>
+              <button
+                type="button"
+                disabled={(!syncFromDate && !syncToDate) || syncingEmailNow}
+                onClick={() => handleSyncEmailNow({ fromDate: syncFromDate, toDate: syncToDate })}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingEmailNow ? 'animate-spin' : ''}`} />
+                <span>سحب إيميلات الفترة</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Status Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="font-bold text-slate-700 dark:text-slate-200">الحساب المربوط:</span>
+            <span className="font-mono font-bold text-sky-700 dark:text-sky-400">
+              {emailConfig.email_address}
+            </span>
+          </div>
+          <div className="flex items-center gap-4 text-[11px] text-slate-500 dark:text-slate-400">
+            <span>
+              إجمالي الإيميلات المسحوبة كمهام:{' '}
+              <strong className="text-emerald-600 dark:text-emerald-400">{emailConfig.total_synced_count || recentSyncedEmails.length}</strong>
+            </span>
+            {emailConfig.last_sync_at && (
+              <span>آخر مزامنة: {emailConfig.last_sync_at}</span>
+            )}
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveEmailConfig} className="space-y-3 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                البريد الإلكتروني الرسمي
+              </label>
+              <input
+                type="email"
+                required
+                value={emailConfig.email_address || ''}
+                onChange={(e) => setEmailConfig({ ...emailConfig, email_address: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono focus:ring-2 focus:ring-sky-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                كلمة مرور البريد الإلكتروني
+              </label>
+              <input
+                type="password"
+                required
+                value={emailConfig.password || ''}
+                onChange={(e) => setEmailConfig({ ...emailConfig, password: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono focus:ring-2 focus:ring-sky-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                توجيه المهام المسحوبة افتراضياً إلى
+              </label>
+              <input
+                type="text"
+                value={emailConfig.default_assigned_to || ''}
+                onChange={(e) => setEmailConfig({ ...emailConfig, default_assigned_to: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                الأولوية الافتراضية لمهام البريد
+              </label>
+              <select
+                value={emailConfig.default_priority || 'high'}
+                onChange={(e) => setEmailConfig({ ...emailConfig, default_priority: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none"
+              >
+                <option value="urgent_critical">عاجل جداً</option>
+                <option value="high">مرتفع</option>
+                <option value="medium">متوسط</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                الحد الأقصى للرسائل في كل عملية سحب
+              </label>
+              <input
+                type="number"
+                min={5}
+                max={100}
+                value={emailConfig.max_emails_per_sync || 25}
+                onChange={(e) =>
+                  setEmailConfig({ ...emailConfig, max_emails_per_sync: parseInt(e.target.value, 10) || 25 })
+                }
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-end">
+              <button
+                type="submit"
+                disabled={savingEmailConfig}
+                className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors"
+              >
+                {savingEmailConfig ? 'جاري الحفظ...' : 'حفظ إعدادات البريد'}
+              </button>
+            </div>
+          </div>
+        </form>
+
+        {/* Recent Synced Emails List */}
+        {recentSyncedEmails.length > 0 && (
+          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              أحدث الإيميلات التي تم سحبها وتحويلها لمهام ({recentSyncedEmails.length}):
+            </div>
+            <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
+              {recentSyncedEmails.map((em) => (
+                <div
+                  key={em.id}
+                  className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-white dark:bg-slate-900 hover:bg-slate-50/70 text-xs"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-slate-800 dark:text-slate-100 truncate">
+                      {em.subject}
+                    </div>
+                    <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
+                      <span>من: {em.sender_name || em.sender_email}</span>
+                      <span>•</span>
+                      <span className="font-mono">{em.received_at?.replace('T', ' ').slice(0, 16)}</span>
+                      {em.attachments_count > 0 && (
+                        <span className="inline-flex items-center gap-1 text-amber-600 font-bold">
+                          <Paperclip className="w-3 h-3" />
+                          {em.attachments_count} مرفق
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {em.task_number && (
+                    <a
+                      href={`/tasks?taskId=${em.task_id}`}
+                      className="px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 font-mono text-[11px] font-bold shrink-0 hover:bg-sky-100"
+                    >
+                      {em.task_number}
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Users & Technical Office Members Management */}

@@ -194,11 +194,13 @@ settingsRoutes.post('/reset-all-data', async (c) => {
       'meeting_decisions',
       'attachments',
       'notifications',
+      'synced_emails',
     ];
 
     for (const t of tables) {
-      await db.prepare(`DELETE FROM ${t}`).run();
+      await db.prepare(`DELETE FROM ${t}`).run().catch(() => {});
     }
+    await db.prepare('UPDATE email_config SET total_synced_count = 0').run().catch(() => {});
 
     await logAudit(db, user.userId, user.username, 'RESET_ALL_DATA', 'system', null, 'مسح كافة البيانات التشغيلية وإعادة ضبط النظام');
 

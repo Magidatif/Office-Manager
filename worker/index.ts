@@ -13,6 +13,7 @@ import { archiveRoutes } from './routes/archive';
 import { reportRoutes } from './routes/reports';
 import { searchRoutes } from './routes/search';
 import { settingsRoutes } from './routes/settings';
+import { emailSyncRoutes, syncEmailsToTasks } from './routes/email-sync';
 import { generateId } from './db';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: JwtPayload } }>();
@@ -65,6 +66,7 @@ app.route('/api/archive', archiveRoutes);
 app.route('/api/reports', reportRoutes);
 app.route('/api/search', searchRoutes);
 app.route('/api/settings', settingsRoutes);
+app.route('/api/email', emailSyncRoutes);
 
 // Scheduled Cron Trigger Handler for Cloudflare Workers
 export async function handleScheduled(event: ScheduledEvent, env: Env) {
@@ -123,6 +125,14 @@ export async function handleScheduled(event: ScheduledEvent, env: Env) {
           '/tasks?overdue=1'
         )
         .run();
+    }
+
+    // 3. Automatically sync official email inbox into tasks
+    try {
+      const syncResult = await syncEmailsToTasks(env);
+      console.log(`[Cron] Email Sync completed: ${syncResult.importedCount} new tasks created from email.`);
+    } catch (emailErr) {
+      console.error('[Cron] Email Sync error:', emailErr);
     }
 
     console.log(`[Cron] Completed: ${dueToday.length} due tasks, ${overdueTasks.length} overdue tasks.`);

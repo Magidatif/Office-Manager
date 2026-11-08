@@ -259,3 +259,43 @@ CREATE TABLE IF NOT EXISTS user_settings (
   updated_at TEXT NOT NULL DEFAULT (DATETIME('now'))
 );
 
+-- 16. Email Integration Configuration (إعدادات ربط البريد الإلكتروني الرسمي للمكتب الفني)
+CREATE TABLE IF NOT EXISTS email_config (
+  id TEXT PRIMARY KEY,
+  email_address TEXT NOT NULL,
+  password TEXT NOT NULL,
+  owa_url TEXT NOT NULL DEFAULT 'https://mail.egcloud.gov.eg/owa/',
+  adfs_url TEXT NOT NULL DEFAULT 'https://fed.egcloud.gov.eg',
+  default_assigned_to TEXT NOT NULL DEFAULT 'د. ماجد عاطف',
+  default_task_type TEXT NOT NULL DEFAULT 'تكليف إداري',
+  default_priority TEXT NOT NULL DEFAULT 'high',
+  sync_interval_minutes INTEGER NOT NULL DEFAULT 5,
+  max_emails_per_sync INTEGER NOT NULL DEFAULT 25,
+  only_unread INTEGER NOT NULL DEFAULT 0,
+  is_enabled INTEGER NOT NULL DEFAULT 1,
+  last_sync_at TEXT,
+  last_sync_status TEXT,
+  last_sync_error TEXT,
+  total_synced_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (DATETIME('now')),
+  updated_at TEXT NOT NULL DEFAULT (DATETIME('now'))
+);
+
+-- 17. Synced Emails Log (سجل الرسائل المسحوبة لمنع التكرار وربطها بالمهام والمرفقات)
+CREATE TABLE IF NOT EXISTS synced_emails (
+  id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL UNIQUE,
+  ews_item_id TEXT,
+  subject TEXT NOT NULL,
+  sender_name TEXT,
+  sender_email TEXT,
+  received_at TEXT,
+  task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  correspondence_id TEXT REFERENCES correspondences(id) ON DELETE SET NULL,
+  attachments_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (DATETIME('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_synced_emails_msg ON synced_emails(message_id);
+CREATE INDEX IF NOT EXISTS idx_synced_emails_task ON synced_emails(task_id);
+
+

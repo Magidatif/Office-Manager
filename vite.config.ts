@@ -60,16 +60,16 @@ function cloudflareWorkerDevPlugin() {
       localDbInstance = d1;
       localR2Instance = createLocalR2Bucket(path.resolve(process.cwd(), '.wrangler/local-r2'));
 
-      // Import the compiled worker app
-      const workerModule = await import('./worker/index');
-      appInstance = workerModule.default;
-
+      // Load the worker app via Vite SSR module loader so edits to worker/* hot-reload automatically
       server.middlewares.use(async (req: any, res: any, next: any) => {
         if (!req.url.startsWith('/api')) {
           return next();
         }
 
         try {
+          const workerModule = await server.ssrLoadModule('/worker/index.ts');
+          appInstance = workerModule.default;
+
           // Construct Web Request
           const protocol = req.headers['x-forwarded-proto'] || 'http';
           const host = req.headers.host || 'localhost:5173';

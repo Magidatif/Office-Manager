@@ -22,3 +22,23 @@ INSERT OR IGNORE INTO users (id, username, password_hash, full_name, job_title, 
 -- 3. Default User Settings
 INSERT OR IGNORE INTO user_settings (id, user_id, work_start_time, work_end_time, default_reminder_hours, theme, language) VALUES
 ('settings-1', 'user-1', '08:30', '15:30', 24, 'light', 'ar');
+
+-- 4. Default Official Technical Office Email Account (EHA Luxor Branch)
+INSERT OR IGNORE INTO email_config (
+  id, email_address, password, owa_url, adfs_url,
+  default_assigned_to, default_task_type, default_priority,
+  sync_interval_minutes, max_emails_per_sync, only_unread, is_enabled
+) VALUES (
+  'email-cfg-1',
+  'technicaloffice.luxor@eha.gov.eg',
+  'P@ssw0rdP@ssw0rd15',
+  'https://mail.egcloud.gov.eg/owa/',
+  'https://fed.egcloud.gov.eg',
+  'د. ماجد عاطف',
+  'تكليف إداري',
+  'high',
+  5,
+  25,
+  0,
+  1
+);

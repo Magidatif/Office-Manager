@@ -15,6 +15,9 @@ import {
   Sparkles,
   Edit,
   Trash2,
+  Mail,
+  RefreshCw,
+  Calendar,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -35,6 +38,51 @@ export const CorrespondencesPage: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Correspondence | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [syncingMail, setSyncingMail] = useState(false);
+  const [syncTargetDate, setSyncTargetDate] = useState<string>('');
+
+  const handleSyncEmailCorrespondences = async () => {
+    try {
+      setSyncingMail(true);
+      toast.info(
+        syncTargetDate
+          ? `جاري سحب المراسلات من البريد الإلكتروني الرسمي ليوم (${syncTargetDate})...`
+          : 'جاري سحب المراسلات الجديدة من البريد الإلكتروني الرسمي...'
+      );
+      const res = await apiRequest<{
+        success: boolean;
+        fetchedCount: number;
+        importedCount: number;
+        attachmentsSavedCount: number;
+      }>('/email/sync', {
+        method: 'POST',
+        body: JSON.stringify(syncTargetDate ? { targetDate: syncTargetDate } : {}),
+      });
+
+      if (res.success) {
+        if (res.importedCount > 0) {
+          toast.success(
+            syncTargetDate
+              ? `تم قيد ${res.importedCount} مكاتبة واردة ليوم (${syncTargetDate}) وتحويلها لمهام مع ${res.attachmentsSavedCount} مرفق`
+              : `تم قيد ${res.importedCount} مكاتبة واردة جديدة وتحويلها لمهام مع ${res.attachmentsSavedCount} مرفق`
+          );
+          loadData();
+        } else {
+          toast.info(
+            syncTargetDate
+              ? res.fetchedCount > 0
+                ? `جميع رسائل يوم (${syncTargetDate}) البالغ عددها (${res.fetchedCount}) مقيدة بالفعل في سجل المراسلات`
+                : `لا توجد رسائل واردة على البريد الرسمي في يوم (${syncTargetDate})`
+              : 'سجل المراسلات محدّث — لا توجد رسائل بريد جديدة غير مسحوبة'
+          );
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'فشل سحب البريد الإلكتروني');
+    } finally {
+      setSyncingMail(false);
+    }
+  };
 
   // Form
   const [formData, setFormData] = useState<any>({
@@ -205,31 +253,72 @@ export const CorrespondencesPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setFormData({
-              id: undefined,
-              subject: '',
-              letter_type: 'وارد',
-              sender: '',
-              recipient: 'مدير فرع الهيئة',
-              official_letter_number: '',
-              letter_date: new Date().toISOString().split('T')[0],
-              date_received_or_sent: new Date().toISOString().split('T')[0],
-              summary: '',
-              required_action: '',
-              department_id: '',
-              reply_due_date: '',
-              status: 'under_process',
-              notes: '',
-            });
-            setShowAddModal(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          قيد مخاطبة جديدة
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <div className="flex items-center rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+            <div className="flex items-center gap-1 px-2.5 py-1.5 border-l border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60">
+              <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <input
+                type="date"
+                value={syncTargetDate}
+                onChange={(e) => setSyncTargetDate(e.target.value)}
+                title="حدد تاريخ يوم معين لسحب مراسلاته فقط (أو اتركه فارغاً لسحب الأحدث)"
+                className="bg-transparent text-xs font-mono text-slate-700 dark:text-slate-200 focus:outline-none"
+              />
+              {syncTargetDate && (
+                <button
+                  type="button"
+                  onClick={() => setSyncTargetDate('')}
+                  title="إلغاء تحديد اليوم (سحب الأحدث)"
+                  className="text-[10px] font-bold text-slate-400 hover:text-red-500 px-1"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleSyncEmailCorrespondences}
+              disabled={syncingMail}
+              className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs sm:text-sm font-bold transition-all"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncingMail ? 'animate-spin' : ''}`} />
+              <Mail className="w-4 h-4" />
+              <span>
+                {syncingMail
+                  ? 'جاري السحب...'
+                  : syncTargetDate
+                  ? `سحب مراسلات (${syncTargetDate})`
+                  : 'سحب المراسلات من البريد'}
+              </span>
+            </button>
+          </div>
+
+          <button
+            onClick={() => {
+              setFormData({
+                id: undefined,
+                subject: '',
+                letter_type: 'وارد',
+                sender: '',
+                recipient: 'مدير فرع الهيئة',
+                official_letter_number: '',
+                letter_date: new Date().toISOString().split('T')[0],
+                date_received_or_sent: new Date().toISOString().split('T')[0],
+                summary: '',
+                required_action: '',
+                department_id: '',
+                reply_due_date: '',
+                status: 'under_process',
+                notes: '',
+              });
+              setShowAddModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            قيد مخاطبة جديدة
+          </button>
+        </div>
       </div>
 
       {/* Filter Bar */}
